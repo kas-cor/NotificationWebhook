@@ -1,0 +1,1 @@
+# NotifWebhook ProGuard rules
