@@ -135,38 +135,29 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Generate changelog
-        id: changelog
+      - name: Generate release notes with changelog
+        id: notes
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
           PREV_TAG=$(git tag --sort=-version:refname | awk 'NR==2' || true)
           CURRENT_TAG="${GITHUB_REF_NAME}"
 
           if [ -n "$PREV_TAG" ]; then
-            LOG=$(git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s" --no-merges 2>/dev/null || echo "")
+            CHANGELOG=$(git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s" --no-merges 2>/dev/null)
           else
-            LOG=$(git log --pretty=format:"- %s" --no-merges 2>/dev/null | head -40)
+            CHANGELOG=$(git log --pretty=format:"- %s" --no-merges 2>/dev/null | head -40)
           fi
 
-          if [ -z "$LOG" ]; then
-            LOG="- Первый релиз"
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- Первый релиз"
           fi
 
-          {
-            echo 'changelog<<EOF'
-            echo "$LOG"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Generate release notes
-        id: notes
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          CHANGELOG_RAW="${{ steps.changelog.outputs.changelog }}"
           NOTES=$(cat <<EOF
           ## NotifWebhook v${VERSION}
 
           ### Что нового
-          ${CHANGELOG_RAW}
+          ${CHANGELOG}
 
           ### Установка
           1. Скачайте APK
