@@ -146,7 +146,7 @@ jobs:
           build_changelog() {
             local range="$1"
             local result=""
-            for HASH in $(git rev-list "$range" --no-merges 2>/dev/null); do
+            for HASH in $(git rev-list $range --no-merges 2>/dev/null); do
               FILES=$(git diff-tree --no-commit-id --name-only -r "$HASH" 2>/dev/null)
               NON_CI=$(echo "$FILES" | grep -vx '.github/workflows/ci.yml' || true)
               if [ -n "$NON_CI" ]; then
