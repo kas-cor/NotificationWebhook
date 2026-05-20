@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -83,3 +84,61 @@ jobs:
           name: app-release-unsigned
           path: app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 7
+
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download signed APK
+        uses: actions/download-artifact@v4
+        with:
+          name: app-release-signed
+          path: /tmp/release-apk
+
+      - name: Determine if APK is signed
+        id: check_apk
+        run: |
+          if [ -f /tmp/release-apk/app-release.apk ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(cat <<EOF
+          ## NotifWebhook v${VERSION}
+
+          Скачайте APK и установите на устройство Android 14+.
+
+          ### Инструкция
+          1. Установите APK
+          2. Предоставьте доступ к уведомлениям
+          3. Отключите оптимизацию батареи
+          4. Введите webhook URL и нажмите Сохранить
+          EOF
+          )
+          NOTES="${NOTES//'%'/'%25'}"
+          NOTES="${NOTES//$'\n'/'%0A'}"
+          NOTES="${NOTES//$'\r'/'%0D'}"
+          echo "body=$NOTES" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: steps.check_apk.outputs.exists == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          files: |
+            /tmp/release-apk/app-release.apk
+          draft: false
+          prerelease: false
