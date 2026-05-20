@@ -116,6 +116,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Download signed APK
         uses: actions/download-artifact@v4
@@ -132,20 +135,45 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | awk 'NR==2' || true)
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+
+          if [ -n "$PREV_TAG" ]; then
+            LOG=$(git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s" --no-merges 2>/dev/null || echo "")
+          else
+            LOG=$(git log --pretty=format:"- %s" --no-merges 2>/dev/null | head -40)
+          fi
+
+          if [ -z "$LOG" ]; then
+            LOG="- Первый релиз"
+          fi
+
+          {
+            echo 'changelog<<EOF'
+            echo "$LOG"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Generate release notes
         id: notes
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          CHANGELOG_RAW="${{ steps.changelog.outputs.changelog }}"
           NOTES=$(cat <<EOF
           ## NotifWebhook v${VERSION}
 
-          Скачайте APK и установите на устройство Android 14+.
+          ### Что нового
+          ${CHANGELOG_RAW}
 
-          ### Инструкция
-          1. Установите APK
-          2. Предоставьте доступ к уведомлениям
-          3. Отключите оптимизацию батареи
-          4. Введите webhook URL и нажмите Сохранить
+          ### Установка
+          1. Скачайте APK
+          2. Установите на устройство
+          3. Предоставьте доступ к уведомлениям
+          4. Отключите оптимизацию батареи
+          5. Введите webhook URL и нажмите Сохранить
           EOF
           )
           NOTES="${NOTES//'%'/'%25'}"
