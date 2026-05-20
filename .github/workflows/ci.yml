@@ -143,10 +143,24 @@ jobs:
           PREV_TAG=$(git tag --sort=-version:refname | awk 'NR==2' || true)
           CURRENT_TAG="${GITHUB_REF_NAME}"
 
+          build_changelog() {
+            local range="$1"
+            local result=""
+            for HASH in $(git rev-list "$range" --no-merges 2>/dev/null); do
+              FILES=$(git diff-tree --no-commit-id --name-only -r "$HASH" 2>/dev/null)
+              NON_CI=$(echo "$FILES" | grep -vx '.github/workflows/ci.yml' || true)
+              if [ -n "$NON_CI" ]; then
+                MSG=$(git log --format="format:- %s" -1 "$HASH" 2>/dev/null)
+                result="${result}${MSG}"$'\n'
+              fi
+            done
+            echo "$result"
+          }
+
           if [ -n "$PREV_TAG" ]; then
-            CHANGELOG=$(git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s" --no-merges 2>/dev/null)
+            CHANGELOG=$(build_changelog "${PREV_TAG}..${CURRENT_TAG}")
           else
-            CHANGELOG=$(git log --pretty=format:"- %s" --no-merges 2>/dev/null | head -40)
+            CHANGELOG=$(build_changelog "--max-count=40 HEAD")
           fi
 
           if [ -z "$CHANGELOG" ]; then
