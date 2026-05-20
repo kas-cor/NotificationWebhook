@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var permissionBtn: Button
     private lateinit var batteryBtn: Button
     private lateinit var webhookInput: EditText
+    private lateinit var bearerTokenInput: EditText
     private lateinit var saveBtn: Button
     private lateinit var testBtn: Button
     private lateinit var forwardingSwitch: SwitchMaterial
@@ -127,6 +128,7 @@ class MainActivity : AppCompatActivity() {
         permissionBtn = findViewById(R.id.btn_permission)
         batteryBtn = findViewById(R.id.btn_battery)
         webhookInput = findViewById(R.id.et_webhook_url)
+        bearerTokenInput = findViewById(R.id.et_bearer_token)
         saveBtn = findViewById(R.id.btn_save_webhook)
         testBtn = findViewById(R.id.btn_test_webhook)
         forwardingSwitch = findViewById(R.id.switch_forwarding)
@@ -137,6 +139,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun restoreUI() {
         webhookInput.setText(prefs.webhookUrl)
+        bearerTokenInput.setText(prefs.bearerToken)
         forwardingSwitch.isChecked = prefs.forwardingEnabled
         skipOngoingSwitch.isChecked = prefs.skipOngoing
     }
@@ -165,7 +168,7 @@ class MainActivity : AppCompatActivity() {
             requestBatteryOptimizationExemption()
         }
 
-        // Сохранить webhook URL
+        // Сохранить webhook URL и Bearer token
         saveBtn.setOnClickListener {
             val url = webhookInput.text.toString().trim()
             if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -173,7 +176,8 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             prefs.webhookUrl = url
-            Toast.makeText(this, "✓ URL сохранён", Toast.LENGTH_SHORT).show()
+            prefs.bearerToken = bearerTokenInput.text.toString().trim()
+            Toast.makeText(this, "✓ URL и токен сохранены", Toast.LENGTH_SHORT).show()
         }
 
         // Тест webhook
@@ -316,6 +320,10 @@ class MainActivity : AppCompatActivity() {
                     val conn = URL(url).openConnection() as HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    val token = prefs.bearerToken
+                    if (token.isNotBlank()) {
+                        conn.setRequestProperty("Authorization", "Bearer $token")
+                    }
                     conn.doOutput = true
                     conn.connectTimeout = 10_000
                     conn.readTimeout = 10_000

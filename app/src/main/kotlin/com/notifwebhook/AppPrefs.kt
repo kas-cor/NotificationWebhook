@@ -21,6 +21,10 @@ class AppPrefs private constructor(private val sp: SharedPreferences) {
         get() = sp.getBoolean(KEY_SKIP_ONGOING, true)
         set(v) = sp.edit().putBoolean(KEY_SKIP_ONGOING, v).apply()
 
+    var bearerToken: String
+        get() = sp.getString(KEY_BEARER_TOKEN, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_BEARER_TOKEN, v).apply()
+
     var allowedApps: Set<String>
         get() = sp.getStringSet(KEY_ALLOWED_APPS, emptySet()) ?: emptySet()
         set(v) = sp.edit().putStringSet(KEY_ALLOWED_APPS, v).apply()
@@ -28,6 +32,7 @@ class AppPrefs private constructor(private val sp: SharedPreferences) {
     companion object {
         private const val PREFS_NAME = "notif_webhook_prefs"
         private const val KEY_WEBHOOK_URL = "webhook_url"
+        private const val KEY_BEARER_TOKEN = "bearer_token"
         private const val KEY_FORWARDING_ENABLED = "forwarding_enabled"
         private const val KEY_SKIP_ONGOING = "skip_ongoing"
         private const val KEY_ALLOWED_APPS = "allowed_apps"

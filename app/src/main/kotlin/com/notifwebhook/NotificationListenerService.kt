@@ -289,6 +289,10 @@ class NotificationListenerService : NotificationListenerService() {
             conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("User-Agent", "NotifWebhook-Android/1.0")
+            val token = AppPrefs.get(this).bearerToken
+            if (token.isNotBlank()) {
+                conn.setRequestProperty("Authorization", "Bearer $token")
+            }
             conn.doOutput = true
             conn.connectTimeout = 10_000
             conn.readTimeout = 10_000

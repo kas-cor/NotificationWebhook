@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/github/license/kas-cor/NotificationWebhook)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/kas-cor/NotificationWebhook?include_prereleases&logo=github)](https://github.com/kas-cor/NotificationWebhook/releases)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kas-cor/NotificationWebhook/ci.yml?logo=github&label=CI)](https://github.com/kas-cor/NotificationWebhook/actions)
+[![Coverage](https://img.shields.io/badge/coverage-63%25-A3D936?logo=codecov&logoColor=white&label=JaCoCo)](https://github.com/kas-cor/NotificationWebhook/actions?query=artifact%3Acoverage-report)
 
 Приложение перехватывает уведомления других приложений через `NotificationListenerService`
 и отправляет их на указанный webhook как JSON (HTTP POST).
@@ -19,6 +20,7 @@
 - 🔁 **Автозапуск** — после перезагрузки устройства
 - 🌗 **Material3 Design** — светлая и тёмная тема (автоматически, под систему)
 - ✅ **Тестовая отправка** — встроенная кнопка для проверки webhook
+- 🔐 **Bearer token** — опциональная авторизация через `Authorization: Bearer <токен>`
 
 ## JSON payload
 
@@ -82,9 +84,10 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 3. **Отключить оптимизацию батареи:**
    - Нажмите кнопку в приложении → разрешите
 4. **Ввести webhook URL** → **Сохранить**
-5. **Нажать «Тест POST»** — убедиться, что HTTP 200
-6. **Включить «Пересылать уведомления»**
-7. *(опционально)* Выбрать конкретные приложения (пусто = все)
+5. *(опционально)* **Ввести Bearer token** в поле ниже URL → **Сохранить** (токен будет добавлен как `Authorization: Bearer ...` к каждому запросу)
+6. **Нажать «Тест POST»** — убедиться, что HTTP 200
+7. **Включить «Пересылать уведомления»**
+8. *(опционально)* Выбрать конкретные приложения (пусто = все)
 
 ### Для Xiaomi / HyperOS / MIUI
 
@@ -101,6 +104,7 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 - **Material 3** — карточки с закруглениями, акцентный синий цвет
 - **Тёмная тема** — автоматически под систему (DayNight)
 - **Секции:** СТАТУС, WEBHOOK URL, НАСТРОЙКИ, ПРИЛОЖЕНИЯ
+- **Bearer token** — поле ввода под webhook URL с переключателем видимости пароля
 
 ## Android 14+ особенности
 
@@ -125,6 +129,46 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 | AndroidX Core-KTX | 1.13.1 |
 | AppCompat | 1.7.0 |
 | RecyclerView | 1.3.2 |
+
+## Тестирование
+
+Проект содержит **22 unit-теста** для `NotificationListenerService` — ядра приложения.
+
+| Группа | Тестов | Что проверяют |
+|---|---|---|
+| `resolveTitle` | 8 | Приоритет заголовков: BigTitle → Title → tickerText → "" |
+| `resolveText` | 11 | Приоритет текста: BigText → TextLines → Text → SummaryText → tickerText → "" |
+| `isOngoing` | 3 | Определение `FLAG_ONGOING_EVENT` |
+
+**Стек:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker для `Bundle`).
+
+### Запуск тестов
+
+```bash
+# Unit-тесты
+./gradlew test
+
+# Покрытие кода (JaCoCo)
+./gradlew jacocoTestReport
+```
+
+После `jacocoTestReport` откройте в браузере:
+```
+app/build/reports/jacoco/jacocoTestReport/html/index.html
+```
+
+### CI
+
+При каждом пуше в `main` тесты запускаются автоматически (шаг `Run unit tests`). Отчёт JaCoCo (HTML + XML) загружается как артефакт `coverage-report` и хранится 14 дней.
+
+### Добавление тестов
+
+Тесты находятся в `app/src/test/java/com/notifwebhook/`. Файл конфигурации inline mock maker:
+```
+app/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+```
+
+---
 
 ## Сборка
 
