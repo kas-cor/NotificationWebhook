@@ -1,5 +1,12 @@
 # NotifWebhook — Android 14+ (API 34)
 
+[![GitHub](https://img.shields.io/badge/GitHub-kas--cor/NotificationWebhook-181717?logo=github)](https://github.com/kas-cor/NotificationWebhook)
+[![Kotlin](https://img.shields.io/badge/Kotlin-1.9-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Android](https://img.shields.io/badge/Android-14%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
+[![License](https://img.shields.io/github/license/kas-cor/NotificationWebhook)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/kas-cor/NotificationWebhook?include_prereleases&logo=github)](https://github.com/kas-cor/NotificationWebhook/releases)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kas-cor/NotificationWebhook/ci.yml?logo=github&label=CI)](https://github.com/kas-cor/NotificationWebhook/actions)
+
 Приложение перехватывает уведомления других приложений через `NotificationListenerService`
 и отправляет их на указанный webhook как JSON (HTTP POST).
 
@@ -125,3 +132,13 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 ./gradlew assembleRelease
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
+
+---
+
+<p align="center">
+  <a href="https://github.com/kas-cor/NotificationWebhook">📦 GitHub</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/kas-cor/NotificationWebhook/issues">🐛 Сообщить об ошибке</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/kas-cor/NotificationWebhook/discussions">💬 Обсуждения</a>
+</p>
