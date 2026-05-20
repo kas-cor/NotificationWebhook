@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'jacoco'
 }
 
 android {
@@ -29,6 +30,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            enableUnitTestCoverage true
+        }
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -54,6 +58,10 @@ android {
     }
 }
 
+jacoco {
+    toolVersion = '0.8.11'
+}
+
 dependencies {
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
@@ -66,4 +74,32 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.mockito:mockito-core:5.11.0'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1'
+}
+
+// --- JaCoCo coverage report task ---
+tasks.register('jacocoTestReport', JacocoReport) {
+    dependsOn 'testDebugUnitTest'
+
+    reports {
+        xml.required = true
+        html.required = true
+    }
+
+    // Kotlin source files
+    sourceDirectories.setFrom(files(layout.projectDirectory.dir("src/main/kotlin")))
+
+    // Compiled class files (Kotlin + Java) — exclude auto-generated
+    classDirectories.setFrom(
+        fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")) {
+            include '**/*.class'
+            exclude '**/R.class'
+            exclude '**/R$*.class'
+            exclude '**/BuildConfig.class'
+        }
+    )
+
+    // Execution data from unit tests
+    executionData.setFrom(fileTree(layout.buildDirectory) {
+        include '**/*.exec'
+    })
 }
