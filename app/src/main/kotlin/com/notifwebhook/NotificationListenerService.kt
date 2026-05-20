@@ -173,7 +173,7 @@ class NotificationListenerService : NotificationListenerService() {
      * Извлекаем текст уведомления с приоритетом:
      * MessagingStyle.messages → bigText → textLines → text → infoText → summaryText → tickerText
      */
-    private fun resolveText(notification: Notification, extras: Bundle): String {
+    fun resolveText(notification: Notification, extras: Bundle): String {
         // 1. MessagingStyle (чат/мессенджеры: Telegram, WhatsApp и т.д.)
         // В extras EXTRA_MESSAGES хранится как ArrayList<Bundle>
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -222,7 +222,7 @@ class NotificationListenerService : NotificationListenerService() {
      * Извлекаем заголовок уведомления с приоритетом:
      * titleBig → conversationTitle → title → tickerText
      */
-    private fun resolveTitle(notification: Notification, extras: Bundle): String {
+    fun resolveTitle(notification: Notification, extras: Bundle): String {
         // 1. Заголовок в развёрнутом виде (некоторые приложения разделяют title и bigTitle)
         val titleBig = extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()
         if (!titleBig.isNullOrBlank()) return titleBig
@@ -245,10 +245,10 @@ class NotificationListenerService : NotificationListenerService() {
         return ""
     }
 
-    private val Notification.isOngoing: Boolean
+    val Notification.isOngoing: Boolean
         get() = (flags and Notification.FLAG_ONGOING_EVENT) != 0
 
-    private fun buildPayload(
+    fun buildPayload(
         sbn: StatusBarNotification,
         notification: Notification,
         packageName: String,
