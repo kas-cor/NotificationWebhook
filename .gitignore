@@ -15,6 +15,10 @@ local.properties
 # Qwen AI assistant
 .qwen/
 
+# Android keystore (sensitive signing key)
+*.jks
+*.keystore
+
 # Misc
 *.log
 *.tmp

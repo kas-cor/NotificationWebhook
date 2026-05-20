@@ -21,9 +21,9 @@ android {
         release {
             if (keystoreFile.exists()) {
                 storeFile keystoreFile
-                storePassword '123456'
+                storePassword System.getenv('KEYSTORE_PASSWORD') ?: ''
                 keyAlias 'notwebhook'
-                keyPassword '123456'
+                keyPassword System.getenv('KEYSTORE_PASSWORD') ?: ''
             }
         }
     }
