@@ -139,6 +139,13 @@ class NotificationListenerService : NotificationListenerService() {
             Log.w(tag, "Пустой title и text для $packageName. Extras keys: ${extras.keySet().joinToString(",")}")
         }
 
+        // Проверка exclusion rules
+        val rules = prefs.getExclusionRules()
+        if (shouldSkipByRules(rules, title, text, appName, packageName)) {
+            Log.d(tag, "Исключено правилом: $packageName")
+            return
+        }
+
         // Дедупликация: одинаковое уведомление в течение 3 секунд — пропускаем
         val dedupeKey = "$packageName|$title|$text"
         val now = System.currentTimeMillis()
@@ -156,8 +163,20 @@ class NotificationListenerService : NotificationListenerService() {
         Log.d(tag, "→ Webhook: $packageName | $title | ${text.take(80)}")
 
         serviceScope.launch {
-            val success = sendToWebhook(webhookUrl, payload)
-            Log.d(tag, "Webhook result: $success for $packageName")
+            val (success, httpCode) = sendToWebhook(webhookUrl, payload)
+            Log.d(tag, "Webhook result: $success ($httpCode) for $packageName")
+
+            // Сохраняем в историю
+            val entry = WebhookEntry(
+                timestamp = System.currentTimeMillis(),
+                appPackage = packageName,
+                appName = appName,
+                title = title,
+                text = text,
+                success = success,
+                httpCode = httpCode
+            )
+            prefs.addHistoryEntry(entry)
         }
     }
 
@@ -281,8 +300,9 @@ class NotificationListenerService : NotificationListenerService() {
     /**
      * HTTP POST на webhook.
      * Выполняется в IO-диспетчере корутины — блокирующий вызов безопасен.
+     * Возвращает Pair<успех, HTTP-код>.
      */
-    private fun sendToWebhook(webhookUrl: String, jsonPayload: String): Boolean {
+    private fun sendToWebhook(webhookUrl: String, jsonPayload: String): Pair<Boolean, Int> {
         return try {
             val conn = URL(webhookUrl).openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
@@ -305,10 +325,10 @@ class NotificationListenerService : NotificationListenerService() {
 
             val code = conn.responseCode
             conn.disconnect()
-            code in 200..299
+            Pair(code in 200..299, code)
         } catch (e: Exception) {
             Log.e(tag, "sendToWebhook error: ${e.message}")
-            false
+            Pair(false, 0)
         }
     }
 
@@ -324,5 +344,23 @@ class NotificationListenerService : NotificationListenerService() {
         const val ACTION_SERVICE_STATUS = "com.notifwebhook.SERVICE_STATUS"
         const val EXTRA_CONNECTED = "connected"
         private const val DEDUPE_WINDOW_MS = 3_000L
+
+        /**
+         * Проверяет, должно ли уведомление быть пропущено согласно правилам исключений.
+         * Вынесено в companion для тестирования.
+         */
+        fun shouldSkipByRules(rules: List<ExclusionRule>, title: String, text: String, appName: String, packageName: String): Boolean {
+            if (rules.isEmpty()) return false
+            return rules.any { rule ->
+                val fieldValue = when (rule.field) {
+                    "title" -> title
+                    "text" -> text
+                    "app_name" -> appName
+                    "app_package" -> packageName
+                    else -> null
+                }
+                fieldValue != null && fieldValue.contains(rule.pattern, ignoreCase = true)
+            }
+        }
     }
 }

@@ -42,6 +42,8 @@ android {
         }
     }
 
+
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -74,6 +76,8 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.mockito:mockito-core:5.11.0'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1'
+    // Real org.json implementation for unit tests (Android provides stubs)
+    testImplementation 'org.json:json:20231013'
 }
 
 // --- JaCoCo coverage report task ---
@@ -88,8 +92,16 @@ tasks.register('jacocoTestReport', JacocoReport) {
     // Kotlin source files
     sourceDirectories.setFrom(files(layout.projectDirectory.dir("src/main/kotlin")))
 
-    // Compiled class files (Kotlin + Java) — exclude auto-generated
+    // Compiled class files (Kotlin + Java) — production + tests, exclude auto-generated
     classDirectories.setFrom(
+        // Production code
+        fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) {
+            include '**/*.class'
+            exclude '**/R.class'
+            exclude '**/R$*.class'
+            exclude '**/BuildConfig.class'
+        },
+        // Test code
         fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")) {
             include '**/*.class'
             exclude '**/R.class'

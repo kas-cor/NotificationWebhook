@@ -218,6 +218,153 @@ class NotificationListenerServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // shouldSkipByRules
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `shouldSkipByRules returns false when rules list is empty`() {
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = emptyList(),
+            title = "Test",
+            text = "Hello",
+            appName = "App",
+            packageName = "com.app"
+        )
+        assertFalse(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules skips when title matches pattern`() {
+        val rules = listOf(ExclusionRule(field = "title", pattern = "Claw"))
+
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "Claw of the Beast",
+            text = "Some text",
+            appName = "Game",
+            packageName = "com.game"
+        )
+        assertTrue(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules skips when text matches pattern`() {
+        val rules = listOf(ExclusionRule(field = "text", pattern = "discord"))
+
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "Message",
+            text = "Join our Discord server",
+            appName = "App",
+            packageName = "com.app"
+        )
+        assertTrue(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules skips when app_name matches pattern`() {
+        val rules = listOf(ExclusionRule(field = "app_name", pattern = "Telegram"))
+
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "Hello",
+            text = "Hi there",
+            appName = "Telegram X",
+            packageName = "org.telegram.messenger"
+        )
+        assertTrue(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules skips when app_package matches pattern`() {
+        val rules = listOf(ExclusionRule(field = "app_package", pattern = "telegram"))
+
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "Hello",
+            text = "Hi",
+            appName = "Telegram",
+            packageName = "org.telegram.messenger"
+        )
+        assertTrue(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules does not skip when no field matches`() {
+        val rules = listOf(ExclusionRule(field = "title", pattern = "foo"))
+
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "bar",
+            text = "hello",
+            appName = "App",
+            packageName = "com.app"
+        )
+        assertFalse(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules matching is case-insensitive`() {
+        val rules = listOf(ExclusionRule(field = "title", pattern = "claw"))
+
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "CLAW OF THE BEAST",
+            text = "text",
+            appName = "App",
+            packageName = "com.app"
+        )
+        assertTrue(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules matches partial string (substring)`() {
+        val rules = listOf(ExclusionRule(field = "title", pattern = "aw"))
+
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "Claw of the Beast",
+            text = "text",
+            appName = "App",
+            packageName = "com.app"
+        )
+        assertTrue(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules returns true if any rule matches`() {
+        val rules = listOf(
+            ExclusionRule(field = "title", pattern = "foo"),
+            ExclusionRule(field = "text", pattern = "bar"),
+            ExclusionRule(field = "app_name", pattern = "Target")
+        )
+
+        // Only app_name matches "TargetApp"
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "Some title",
+            text = "Some text",
+            appName = "TargetApp",
+            packageName = "com.target"
+        )
+        assertTrue(result)
+    }
+
+    @Test
+    fun `shouldSkipByRules returns false when unknown field is specified`() {
+        val rules = listOf(ExclusionRule(field = "unknown_field", pattern = "anything"))
+
+        val result = NotificationListenerService.shouldSkipByRules(
+            rules = rules,
+            title = "Title",
+            text = "Text",
+            appName = "App",
+            packageName = "com.app"
+        )
+        assertFalse(result)
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

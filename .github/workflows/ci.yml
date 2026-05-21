@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.name }}
 
     steps:
       - name: Checkout code
@@ -22,6 +24,31 @@ jobs:
         with:
           java-version: 17
           distribution: temurin
+
+      - name: Bump version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Updating versionName to $VERSION from tag $GITHUB_REF_NAME"
+          sed -i 's/versionName ".*"/versionName "'"$VERSION"'"/' app/build.gradle
+
+          CURRENT_CODE=$(grep 'versionCode' app/build.gradle | sed 's/.*versionCode *\([0-9]*\).*/\1/')
+          NEW_CODE=$((CURRENT_CODE + 1))
+          echo "Incrementing versionCode from $CURRENT_CODE to $NEW_CODE"
+          sed -i 's/versionCode *[0-9]*/versionCode '"$NEW_CODE"'/' app/build.gradle
+
+      - name: Commit version bump to main
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle
+          if git diff --cached --quiet; then
+            echo "No changes to commit — already up to date"
+          else
+            git commit -m "Bump version to ${GITHUB_REF_NAME}"
+            git push origin HEAD:refs/heads/main
+          fi
 
       - name: Grant execute permission for Gradle
         run: chmod +x gradlew
@@ -62,6 +89,12 @@ jobs:
           path: app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
           retention-days: 14
 
+      - name: Extract version name
+        id: version
+        run: |
+          VERSION=$(grep 'versionName' app/build.gradle | sed 's/.*"\(.*\)".*/\1/')
+          echo "name=${VERSION:-unknown}" >> "$GITHUB_OUTPUT"
+
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
@@ -82,27 +115,43 @@ jobs:
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
 
+      - name: Rename debug APK
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk \
+             "app/build/outputs/apk/debug/NotifWebhook-${{ steps.version.outputs.name }}-debug.apk"
+
+      - name: Rename release APK
+        run: |
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            mv app/build/outputs/apk/release/app-release.apk \
+               "app/build/outputs/apk/release/NotifWebhook-${{ steps.version.outputs.name }}.apk"
+          fi
+          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            mv app/build/outputs/apk/release/app-release-unsigned.apk \
+               "app/build/outputs/apk/release/NotifWebhook-${{ steps.version.outputs.name }}-unsigned.apk"
+          fi
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: NotifWebhook-${{ steps.version.outputs.name }}-debug
+          path: app/build/outputs/apk/debug/NotifWebhook-${{ steps.version.outputs.name }}-debug.apk
           retention-days: 7
 
       - name: Upload signed release APK
         if: steps.keystore.outputs.decoded == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-signed
-          path: app/build/outputs/apk/release/app-release.apk
+          name: NotifWebhook-${{ steps.version.outputs.name }}
+          path: app/build/outputs/apk/release/NotifWebhook-${{ steps.version.outputs.name }}.apk
           retention-days: 30
 
       - name: Upload unsigned release APK (fallback)
         if: steps.keystore.outputs.decoded != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-unsigned
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          name: NotifWebhook-${{ steps.version.outputs.name }}-unsigned
+          path: app/build/outputs/apk/release/NotifWebhook-${{ steps.version.outputs.name }}-unsigned.apk
           retention-days: 7
 
   release:
@@ -123,14 +172,16 @@ jobs:
       - name: Download signed APK
         uses: actions/download-artifact@v4
         with:
-          name: app-release-signed
+          name: NotifWebhook-${{ needs.build.outputs.version }}
           path: /tmp/release-apk
 
       - name: Determine if APK is signed
         id: check_apk
         run: |
-          if [ -f /tmp/release-apk/app-release.apk ]; then
+          APK_FILE=$(ls /tmp/release-apk/NotifWebhook-*.apk 2>/dev/null | head -1)
+          if [ -n "$APK_FILE" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "apk_path=$APK_FILE" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -193,7 +244,6 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body: ${{ steps.notes.outputs.body }}
-          files: |
-            /tmp/release-apk/app-release.apk
+          files: ${{ steps.check_apk.outputs.apk_path }}
           draft: false
           prerelease: false

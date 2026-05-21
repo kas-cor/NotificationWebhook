@@ -116,23 +116,35 @@ Workflow: `.github/workflows/ci.yml`
 - **Push тега** `v*` (например, `v1.1`)
 - **Ручной запуск** через `workflow_dispatch`
 
-### Шаги сборки
+### Шаги сборки (build job)
 
-1. Checkout + JDK 17 + Android SDK licenses
-2. Кеширование Gradle
-3. **Lint** (`lintRelease`)
-4. **Unit-тесты** (`test`)  
-5. **JaCoCo coverage** (`jacocoTestReport`) → HTML и XML артефакты
-6. **Debug APK** (`assembleDebug`)
-7. **Декодирование keystore** из секрета `KEYSTORE_BASE64`
-8. **Signed release APK** (`assembleRelease`) с `KEYSTORE_PASSWORD`
-9. **Загрузка артефактов:** debug APK, signed release APK (30 дней), unsigned (fallback)
+1. **Checkout** + JDK 17 + Android SDK licenses
+2. **Bump версии** (только для тегов `v*`):
+   - `versionName` обновляется из тега (например, `v1.1` → `"1.1"`)
+   - `versionCode` инкрементируется (+1 от текущего)
+3. **Commit version bump** (только для тегов `v*`): коммитит изменения в `app/build.gradle` в ветку `main` от имени `github-actions[bot]`
+4. **Кеширование Gradle**
+5. **Lint** (`lintRelease`)
+6. **Unit-тесты** (`test`)
+7. **JaCoCo coverage** (`jacocoTestReport`) → HTML и XML артефакты
+8. **Сборка Debug APK** (`assembleDebug`)
+9. **Декодирование keystore** из секрета `KEYSTORE_BASE64`
+10. **Сборка Release APK** (`assembleRelease`) с `KEYSTORE_PASSWORD`
+11. **Переименование APK:**
+    - Debug: `app-debug.apk` → `NotifWebhook-<version>-debug.apk`
+    - Release: `app-release.apk` → `NotifWebhook-<version>.apk`
+    - Unsigned: `app-release-unsigned.apk` → `NotifWebhook-<version>-unsigned.apk`
+12. **Загрузка артефактов:**
+    - Debug APK (7 дней)
+    - Signed Release APK (30 дней)
+    - Unsigned APK как fallback (7 дней)
 
-### Релизы
+### Релизы (release job)
 
 При пуше тега `v*` дополнительно запускается job `release`:
-- Скачивает signed APK
-- Создаёт GitHub Release с телом и APK
+- Скачивает signed APK по имени артефакта `NotifWebhook-<version>`
+- Генерирует changelog из коммитов между предыдущим тегом и текущим
+- Создаёт GitHub Release с телом заметок и APK-файлом
 
 ### Секреты GitHub
 
@@ -140,6 +152,36 @@ Workflow: `.github/workflows/ci.yml`
 |---|---|
 | `KEYSTORE_BASE64` | `notwebhook-release.jks` в base64 (`base64 -w0 notwebhook-release.jks`) |
 | `KEYSTORE_PASSWORD` | Пароль от keystore |
+
+### Пример полного процесса релиза
+
+```bash
+# 1. Подготовить изменения, закоммитить и запушить в main
+git add .
+git commit -m "Добавлена новая фича"
+git push origin main
+
+# 2. Дождаться зелёного CI на main (lint + тесты + сборка)
+
+# 3. Создать и запушить тег новой версии
+git tag v1.1
+git push origin v1.1
+
+# CI автоматически:
+#   a) Обновит versionName "1.1" и versionCode N+1 в build.gradle
+#   b) Закоммитит эти изменения в main
+#   c) Соберёт debug + release APK
+#   d) Переименует APK в NotifWebhook-1.1-debug.apk и NotifWebhook-1.1.apk
+#   e) Создаст GitHub Release "v1.1" с APK и changelog'ом
+```
+
+### Имена файлов APK
+
+| Тип | Формат | Пример |
+|---|---|---|
+| Debug | `NotifWebhook-<version>-debug.apk` | `NotifWebhook-1.1-debug.apk` |
+| Release (signed) | `NotifWebhook-<version>.apk` | `NotifWebhook-1.1.apk` |
+| Release (unsigned) | `NotifWebhook-<version>-unsigned.apk` | `NotifWebhook-1.1-unsigned.apk` |
 
 ---
 
@@ -167,6 +209,41 @@ Workflow: `.github/workflows/ci.yml`
 3. **Закрепите NotifWebhook** в списке последних приложений
 
 ---
+
+## История отправки Webhook
+
+Приложение сохраняет последние **50 отправок** webhook в локальном хранилище.
+
+**Каждая запись содержит:**
+- Приложение (package + label)
+- Заголовок и текст уведомления
+- Результат (успех/ошибка)
+- HTTP-код ответа
+- Временная метка
+
+**UI:**
+- Основной экран показывает сводку (количество, успешные, последняя запись)
+- Кнопка «Просмотреть историю» открывает диалог со списком последних 50 записей
+- Кнопка «Очистить» удаляет всю историю
+
+История также сохраняется для тестовых отправок.
+
+## Правила исключений
+
+Позволяют пропускать уведомления, если в указанном поле найдена подстрока.
+
+**Правило содержит:**
+- `field` — поле для поиска: `title`, `text`, `app_name`, `app_package`
+- `pattern` — строка для поиска (регистронезависимое вхождение)
+
+**UI:**
+- Список правил с кнопкой удаления у каждого
+- Кнопка «Добавить правило» → диалог с выбором поля и вводом текста
+
+**Логика (NLS):**
+- Проверка выполняется **до** дедупликации и отправки
+- Если хотя бы одно правило совпало — уведомление пропускается
+- Поиск регистронезависимый (`contains(ignoreCase = true)`)
 
 ## Особенности Android 14+ (API 34)
 

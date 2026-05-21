@@ -12,18 +12,24 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.util.Log
 import android.provider.Settings
-import android.text.TextUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
-import android.widget.TextView
+import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.Spinner
+import android.widget.TextView
 import android.widget.Toast
 import android.widget.CheckBox
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -44,6 +50,10 @@ import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+
     private lateinit var prefs: AppPrefs
 
     // Views
@@ -58,6 +68,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var forwardingSwitch: SwitchMaterial
     private lateinit var skipOngoingSwitch: SwitchMaterial
     private lateinit var appsRecycler: RecyclerView
+
+    // Exclusion rules views
+    private lateinit var rulesRecycler: RecyclerView
+    private lateinit var btnAddRule: Button
+    private lateinit var rulesAdapter: ExclusionRulesAdapter
+
+    // History views
+    private lateinit var tvHistorySummary: TextView
+    private lateinit var btnViewHistory: Button
 
     // Разрешение на POST_NOTIFICATIONS (API 33+)
     private val requestNotifPermission = registerForActivityResult(
@@ -85,6 +104,8 @@ class MainActivity : AppCompatActivity() {
         restoreUI()
         setupListeners()
         loadAppsAsync()
+        refreshExclusionRules()
+        refreshHistorySummary()
     }
 
     override fun onResume() {
@@ -103,6 +124,8 @@ class MainActivity : AppCompatActivity() {
         updateStatusUI(isNlsEnabled())
         updatePermissionButton()
         updateBatteryButton()
+        refreshHistorySummary()
+        refreshExclusionRules()
 
         // Запрашиваем POST_NOTIFICATIONS на API 33+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -135,6 +158,15 @@ class MainActivity : AppCompatActivity() {
         skipOngoingSwitch = findViewById(R.id.switch_skip_ongoing)
         appsRecycler = findViewById(R.id.rv_apps)
         appsRecycler.layoutManager = LinearLayoutManager(this)
+
+        // Exclusion rules
+        rulesRecycler = findViewById(R.id.rv_exclusion_rules)
+        rulesRecycler.layoutManager = LinearLayoutManager(this)
+        btnAddRule = findViewById(R.id.btn_add_rule)
+
+        // History
+        tvHistorySummary = findViewById(R.id.tv_history_summary)
+        btnViewHistory = findViewById(R.id.btn_view_history)
     }
 
     private fun restoreUI() {
@@ -202,6 +234,12 @@ class MainActivity : AppCompatActivity() {
         skipOngoingSwitch.setOnCheckedChangeListener { _, checked ->
             prefs.skipOngoing = checked
         }
+
+        // Кнопка добавления правила исключения
+        btnAddRule.setOnClickListener { showAddRuleDialog() }
+
+        // Кнопка просмотра истории
+        btnViewHistory.setOnClickListener { showHistoryDialog() }
     }
 
     // -------------------------------------------------------------------------
@@ -258,7 +296,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Уже исключено из оптимизации", Toast.LENGTH_SHORT).show()
             return
         }
-        // ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS — прямой запрос без лишних шагов
         startActivity(
             Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:$packageName")
@@ -284,6 +321,109 @@ class MainActivity : AppCompatActivity() {
                 prefs.allowedApps = newSet
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Exclusion Rules UI
+    // -------------------------------------------------------------------------
+
+    private fun refreshExclusionRules() {
+        val rules = prefs.getExclusionRules()
+        if (!::rulesAdapter.isInitialized) {
+            rulesAdapter = ExclusionRulesAdapter(rules) { ruleId ->
+                prefs.removeExclusionRule(ruleId)
+                refreshExclusionRules()
+            }
+            rulesRecycler.adapter = rulesAdapter
+        } else {
+            rulesAdapter.updateRules(rules)
+        }
+    }
+
+    private fun showAddRuleDialog() {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_add_rule, null)
+        val spinner = dialogView.findViewById<Spinner>(R.id.spinner_rule_field)
+        val patternInput = dialogView.findViewById<TextInputEditText>(R.id.et_rule_pattern)
+        val patternLayout = dialogView.findViewById<TextInputLayout>(R.id.til_rule_pattern)
+
+        val fields = listOf("title", "text", "app_name", "app_package")
+        val fieldLabels = listOf(
+            "Заголовок (title)",
+            "Текст (text)",
+            "Имя приложения (app_name)",
+            "Пакет (app_package)"
+        )
+        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, fieldLabels).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Добавить правило исключения")
+            .setMessage("Укажите поле и текст, при вхождении которого уведомление будет пропущено")
+            .setView(dialogView)
+            .setPositiveButton("Добавить") { dialog, _ ->
+                val pattern = patternInput.text?.toString()?.trim().orEmpty()
+                if (pattern.isBlank()) {
+                    patternLayout.error = "Введите текст для поиска"
+                    return@setPositiveButton
+                }
+                val selectedField = fields[spinner.selectedItemPosition]
+                prefs.addExclusionRule(ExclusionRule(field = selectedField, pattern = pattern))
+                refreshExclusionRules()
+                Toast.makeText(this, "✓ Правило добавлено", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    // -------------------------------------------------------------------------
+    // History UI
+    // -------------------------------------------------------------------------
+
+    private fun refreshHistorySummary() {
+        val history = prefs.getHistory()
+        if (history.isEmpty()) {
+            tvHistorySummary.text = "Нет записей"
+            btnViewHistory.isEnabled = false
+            btnViewHistory.alpha = 0.5f
+        } else {
+            val successCount = history.count { it.success }
+            val lastEntry = history.last()
+            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+            val time = timeFormat.format(Date(lastEntry.timestamp))
+            tvHistorySummary.text = "Всего: ${history.size} | Успешно: $successCount | Последняя: ${lastEntry.appName} в $time"
+            btnViewHistory.isEnabled = true
+            btnViewHistory.alpha = 1f
+        }
+    }
+
+    private fun showHistoryDialog() {
+        val history = prefs.getHistory()
+        if (history.isEmpty()) {
+            Toast.makeText(this, "История пуста", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val reversed = history.reversed()
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("История отправки (${history.size})")
+            .setPositiveButton("Закрыть", null)
+            .setNeutralButton("Очистить") { _, _ ->
+                prefs.clearHistory()
+                refreshHistorySummary()
+                Toast.makeText(this, "История очищена", Toast.LENGTH_SHORT).show()
+            }
+            .create()
+
+        val recyclerView = LayoutInflater.from(this)
+            .inflate(R.layout.dialog_history, null) as RecyclerView
+        recyclerView.layoutManager = LinearLayoutManager(this)
+        recyclerView.adapter = HistoryAdapter(reversed)
+
+        dialog.setView(recyclerView)
+        dialog.show()
     }
 
     // -------------------------------------------------------------------------
@@ -313,6 +453,9 @@ class MainActivity : AppCompatActivity() {
             put("timestamp_ms", System.currentTimeMillis())
         }.toString()
 
+        Log.d(TAG, "→ Тест POST: $url")
+        Log.d(TAG, "  Payload: ${payload.take(200)}")
+
         val scope = CoroutineScope(Dispatchers.Main)
         scope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -323,6 +466,7 @@ class MainActivity : AppCompatActivity() {
                     val token = prefs.bearerToken
                     if (token.isNotBlank()) {
                         conn.setRequestProperty("Authorization", "Bearer $token")
+                        Log.d(TAG, "  Auth: Bearer token")
                     }
                     conn.doOutput = true
                     conn.connectTimeout = 10_000
@@ -341,13 +485,41 @@ class MainActivity : AppCompatActivity() {
 
             result.fold(
                 onSuccess = { code ->
-                    if (code in 200..299) {
+                    val success = code in 200..299
+                    Log.d(TAG, "← Тест POST результат: HTTP $code (${if (success) "OK" else "ERR"})")
+                    prefs.addHistoryEntry(
+                        WebhookEntry(
+                            timestamp = System.currentTimeMillis(),
+                            appPackage = "com.notifwebhook.test",
+                            appName = "NotifWebhook",
+                            title = "Тестовое уведомление",
+                            text = if (success) "✓ HTTP $code" else "✗ HTTP $code",
+                            success = success,
+                            httpCode = code
+                        )
+                    )
+                    refreshHistorySummary()
+
+                    if (success) {
                         Toast.makeText(this@MainActivity, "✓ Успешно! HTTP $code", Toast.LENGTH_LONG).show()
                     } else {
                         Toast.makeText(this@MainActivity, "✗ HTTP ошибка: $code", Toast.LENGTH_LONG).show()
                     }
                 },
                 onFailure = { e ->
+                    Log.e(TAG, "← Тест POST ошибка: ${e.message}")
+                    prefs.addHistoryEntry(
+                        WebhookEntry(
+                            timestamp = System.currentTimeMillis(),
+                            appPackage = "com.notifwebhook.test",
+                            appName = "NotifWebhook",
+                            title = "Тестовое уведомление",
+                            text = "Ошибка: ${e.message}",
+                            success = false,
+                            httpCode = 0
+                        )
+                    )
+                    refreshHistorySummary()
                     Toast.makeText(this@MainActivity, "✗ Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             )
@@ -390,5 +562,87 @@ class AppListAdapter(
             onChanged(selected.toSet())
         }
         holder.itemView.setOnClickListener { holder.checkbox.toggle() }
+    }
+}
+
+// =============================================================================
+// ExclusionRulesAdapter
+// =============================================================================
+
+class ExclusionRulesAdapter(
+    private var rules: List<ExclusionRule>,
+    private val onDelete: (String) -> Unit
+) : RecyclerView.Adapter<ExclusionRulesAdapter.VH>() {
+
+    inner class VH(view: View) : RecyclerView.ViewHolder(view) {
+        val fieldView: TextView = view.findViewById(R.id.rule_field)
+        val patternView: TextView = view.findViewById(R.id.rule_pattern)
+        val deleteBtn: ImageButton = view.findViewById(R.id.btn_delete_rule)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, type: Int) =
+        VH(LayoutInflater.from(parent.context).inflate(R.layout.item_rule, parent, false))
+
+    override fun getItemCount() = rules.size
+
+    override fun onBindViewHolder(holder: VH, position: Int) {
+        val rule = rules[position]
+        val fieldLabel = when (rule.field) {
+            "title" -> "Заголовок"
+            "text" -> "Текст"
+            "app_name" -> "Имя приложения"
+            "app_package" -> "Пакет"
+            else -> rule.field
+        }
+        holder.fieldView.text = fieldLabel
+        holder.patternView.text = rule.pattern
+        holder.deleteBtn.setOnClickListener { onDelete(rule.id) }
+    }
+
+    fun updateRules(newRules: List<ExclusionRule>) {
+        rules = newRules
+        notifyDataSetChanged()
+    }
+}
+
+// =============================================================================
+// HistoryAdapter
+// =============================================================================
+
+class HistoryAdapter(
+    private val entries: List<WebhookEntry>
+) : RecyclerView.Adapter<HistoryAdapter.VH>() {
+
+    inner class VH(view: View) : RecyclerView.ViewHolder(view) {
+        val statusDot: View = view.findViewById(R.id.history_status_dot)
+        val appName: TextView = view.findViewById(R.id.history_app_name)
+        val time: TextView = view.findViewById(R.id.history_time)
+        val title: TextView = view.findViewById(R.id.history_title)
+        val text: TextView = view.findViewById(R.id.history_text)
+        val httpCode: TextView = view.findViewById(R.id.history_http)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, type: Int) =
+        VH(LayoutInflater.from(parent.context).inflate(R.layout.item_history, parent, false))
+
+    override fun getItemCount() = entries.size
+
+    override fun onBindViewHolder(holder: VH, position: Int) {
+        val entry = entries[position]
+        val context = holder.itemView.context
+
+        holder.statusDot.setBackgroundResource(
+            if (entry.success) R.drawable.circle_green else R.drawable.circle_red
+        )
+        holder.appName.text = entry.appName
+
+        val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+        holder.time.text = timeFormat.format(Date(entry.timestamp))
+
+        holder.title.text = entry.title
+        holder.text.text = entry.text
+
+        val httpText = if (entry.httpCode > 0) "HTTP ${entry.httpCode}" else "Ошибка соединения"
+        holder.httpCode.text = httpText
     }
 }
