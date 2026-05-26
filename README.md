@@ -8,29 +8,30 @@
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kas-cor/NotificationWebhook/ci.yml?logo=github&label=CI)](https://github.com/kas-cor/NotificationWebhook/actions)
 [![Coverage](https://img.shields.io/badge/coverage-63%25-A3D936?logo=codecov&logoColor=white&label=JaCoCo)](https://github.com/kas-cor/NotificationWebhook/actions?query=artifact%3Acoverage-report)
 
-Приложение перехватывает уведомления других приложений через `NotificationListenerService`
-и отправляет их на указанный webhook как JSON (HTTP POST).
+> 🌐 [Русская версия](README_ru.md)
 
-## Возможности
+An Android app that intercepts notifications from other apps via `NotificationListenerService` and forwards them to a specified webhook as JSON (HTTP POST).
 
-- 📡 **Перехват уведомлений** из любых приложений (Telegram, WhatsApp, Gmail, банки и т.д.)
-- 🌐 **Отправка на webhook** — HTTP POST с JSON-телом на любой URL
-- 🎯 **Фильтр по приложениям** — выбрать конкретные приложения или все сразу
-- 🚫 **Пропуск ongoing** — музыку, навигацию, системные уведомления можно исключить
-- 🔁 **Автозапуск** — после перезагрузки устройства
-- 🌗 **Material3 Design** — светлая и тёмная тема (автоматически, под систему)
-- ✅ **Тестовая отправка** — встроенная кнопка для проверки webhook
-- 🔐 **Bearer token** — опциональная авторизация через `Authorization: Bearer <токен>`
+## Features
 
-## JSON payload
+- 📡 **Notification interception** from any app (Telegram, WhatsApp, Gmail, banking, etc.)
+- 🌐 **Webhook delivery** — HTTP POST with JSON payload to any URL
+- 🎯 **Per-app filter** — include specific apps or forward everything
+- 🚫 **Skip ongoing notifications** — music, navigation, system alerts can be excluded
+- 🔁 **Auto-start** — after device reboot
+- 🌗 **Material 3 Design** — light and dark theme (system-aware)
+- ✅ **Test POST** — built-in button to verify webhook connectivity
+- 🔐 **Bearer token** — optional `Authorization: Bearer <token>` header
+
+## JSON Payload
 
 ```json
 {
   "app_package":      "org.telegram.messenger",
   "app_name":         "Telegram",
-  "title":            "Александр",
-  "text":             "Привет!",
-  "sub_text":         "3 новых сообщения",
+  "title":            "Alexander",
+  "text":             "Hello!",
+  "sub_text":         "3 new messages",
   "category":         "msg",
   "priority":         0,
   "notification_id":  12345,
@@ -40,88 +41,98 @@
 }
 ```
 
-### Извлечение текста (fallback chain)
+### Text Resolution (Fallback Chain)
 
-**Заголовок:** `EXTRA_TITLE_BIG` → `EXTRA_CONVERSATION_TITLE` → `EXTRA_TITLE` → `tickerText` → название приложения
+**Title:** `EXTRA_TITLE_BIG` → `EXTRA_CONVERSATION_TITLE` → `EXTRA_TITLE` → `tickerText` → app name
 
-**Текст:** `MessagingStyle.messages` (чаты) → `EXTRA_BIG_TEXT` → `EXTRA_TEXT_LINES` → `EXTRA_TEXT` → `EXTRA_INFO_TEXT` → `EXTRA_SUMMARY_TEXT` → `tickerText` → заголовок
+**Text:** `MessagingStyle.messages` (chats) → `EXTRA_BIG_TEXT` → `EXTRA_TEXT_LINES` → `EXTRA_TEXT` → `EXTRA_INFO_TEXT` → `EXTRA_SUMMARY_TEXT` → `tickerText` → title
 
-## Архитектура
+## Architecture
 
 ```
-NotificationListenerService ← системный bind через BIND_NOTIFICATION_LISTENER_SERVICE
+NotificationListenerService  ← system bind via BIND_NOTIFICATION_LISTENER_SERVICE
         │  onNotificationPosted()
-        │  → дедупликация (окно 3 сек)
+        │  → dedup (3s window)
         │  → buildPayload() → JSONObject
         │  → sendToWebhook() ← Coroutine IO dispatcher
         ▼
    Webhook HTTP POST
 
-ForegroundKeepAliveService  ← START_STICKY foreground-сервис
-        │  удерживает процесс от убийства (особенно на Xiaomi/Huawei)
+ForegroundKeepAliveService  ← START_STICKY foreground service
+        │  keeps process alive (especially on Xiaomi/Huawei)
         │  foregroundServiceType = specialUse (API 34)
-        │  requestRebind(NLS) при запуске
+        │  requestRebind(NLS) on start
         ▼
-   Постоянное уведомление в статус-баре
+   Persistent notification in status bar
 ```
 
-## Компоненты
+## Components
 
-| Файл | Назначение |
-|---|---|
-| `NotificationListenerService.kt` | Ядро: перехват, дедупликация, формирование JSON, HTTP POST |
-| `MainActivity.kt` | UI: статус, webhook URL, переключатели, список приложений |
-| `ForegroundKeepAliveService.kt` | Foreground-сервис для удержания процесса |
-| `BootReceiver.kt` | Автозапуск после перезагрузки / обновления |
-| `AppPrefs.kt` | SharedPreferences singleton (потокобезопасный) |
+| File | Purpose |
+|------|---------|
+| `NotificationListenerService.kt` | Core: intercept, dedup, build JSON, HTTP POST |
+| `MainActivity.kt` | UI: status, webhook URL, toggles, app list |
+| `ForegroundKeepAliveService.kt` | Foreground service to keep process alive |
+| `BootReceiver.kt` | Auto-start after reboot / package update |
+| `AppPrefs.kt` | Thread-safe SharedPreferences singleton |
 
-## Настройка (шаги для пользователя)
+## Setup (User Steps)
 
-1. **Установить APK**
-2. **Предоставить доступ к уведомлениям:**
-   - Нажмите «Предоставить доступ» в приложении
-   - В системных настройках найдите **NotifWebhook** → включите
-3. **Отключить оптимизацию батареи:**
-   - Нажмите кнопку в приложении → разрешите
-4. **Ввести webhook URL** → **Сохранить**
-5. *(опционально)* **Ввести Bearer token** в поле ниже URL → **Сохранить** (токен будет добавлен как `Authorization: Bearer ...` к каждому запросу)
-6. **Нажать «Тест POST»** — убедиться, что HTTP 200
-7. **Включить «Пересылать уведомления»**
-8. *(опционально)* Выбрать конкретные приложения (пусто = все)
+1. **Install APK**
+2. **Grant notification access:**
+   - Tap "Grant access" in the app
+   - In system settings, find **NotifWebhook** → enable
+3. **Disable battery optimization:**
+   - Tap the button in the app → allow
+4. **Enter webhook URL** → **Save**
+5. *(optional)* **Enter Bearer token** below the URL → **Save** (added as `Authorization: Bearer ...` to every request)
+6. **Tap "Test POST"** — verify HTTP 200
+7. **Enable "Forward notifications"**
+8. *(optional)* Select specific apps (empty = all)
 
-### Для Xiaomi / HyperOS / MIUI
+### For Xiaomi / HyperOS / MIUI
 
-Система безопасности Xiaomi агрессивно блокирует фоновые сервисы.
-Дополнительно сделайте:
+Xiaomi's security system aggressively blocks background services. Additional steps:
 
-1. **Настройки → Приложения → Управление → NotifWebhook**
-   - Включите **«Автозапуск»**
-2. **Экономия энергии → NotifWebhook → «Без ограничений»**
-3. **Закрепите NotifWebhook** в списке последних приложений
+1. **Settings → Apps → Manage → NotifWebhook**
+   - Enable **"Auto-start"**
+2. **Battery & Performance → NotifWebhook → "No restrictions"**
+3. **Pin NotifWebhook** in the recent apps list
 
-## Скриншоты дизайна
+## Design
 
-- **Material 3** — карточки с закруглениями, акцентный синий цвет
-- **Тёмная тема** — автоматически под систему (DayNight)
-- **Секции:** СТАТУС, WEBHOOK URL, НАСТРОЙКИ, ПРИЛОЖЕНИЯ
-- **Bearer token** — поле ввода под webhook URL с переключателем видимости пароля
+- **Material 3** — rounded cards, accent blue color
+- **Dark theme** — automatic (DayNight)
+- **Sections:** STATUS, WEBHOOK URL, SETTINGS, APPS
+- **Bearer token** — input field with password visibility toggle
 
-## Android 14+ особенности
+### Webhook Send History
 
-| Проблема | Решение |
-|---|---|
-| `startService()` для NLS не работает | Только системный bind через `BIND_NOTIFICATION_LISTENER_SERVICE` |
-| Сервис убивается OEM | `ForegroundKeepAliveService` c `START_STICKY` |
-| `foregroundServiceType` обязателен | `specialUse` + декларация в манифесте |
-| `POST_NOTIFICATIONS` permission | Запрашивается в `onResume` (API 33+) |
-| Агрессивная батарея Xiaomi | Кнопка исключения из оптимизации + «Автозапуск» вручную |
-| Дубли уведомлений | Дедупликация: `LinkedHashMap` с окном 3 сек, до 50 записей |
-| NLS отключается после перезапуска | `requestRebind()` при старте сервиса + повтор через 5 сек |
+The app stores the last **50 webhook sends** locally. Each record includes app, title/text, success/failure, HTTP code, and timestamp.
 
-## Технологии
+### Exclusion Rules
 
-| Технология | Версия |
-|---|---|
+Notifications can be filtered before sending:
+- Fields: `title`, `text`, `app_name`, `app_package`
+- Case-insensitive substring match
+- Any rule match → notification is dropped
+
+## Android 14+ (API 34) Specifics
+
+| Issue | Solution |
+|-------|----------|
+| `startService()` for NLS doesn't work | System bind via `BIND_NOTIFICATION_LISTENER_SERVICE` only |
+| Service killed by OEM | `ForegroundKeepAliveService` with `START_STICKY` |
+| `foregroundServiceType` required | `specialUse` in manifest |
+| `POST_NOTIFICATIONS` permission | Requested in `onResume` (API 33+) |
+| Aggressive battery on Xiaomi/Huawei | Exempt from optimization + manual auto-start |
+| Duplicate notifications | Dedup via `LinkedHashMap`, 3s window, max 50 entries |
+| NLS disabled after reboot | `requestRebind()` on service start + retry after 5s |
+
+## Tech Stack
+
+| Technology | Version |
+|------------|---------|
 | Kotlin / JVM | 17 |
 | compileSdk / minSdk | 34 |
 | Material Components | 1.12.0 |
@@ -130,47 +141,34 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 | AppCompat | 1.7.0 |
 | RecyclerView | 1.3.2 |
 
-## Тестирование
+## Testing
 
-Проект содержит **22 unit-теста** для `NotificationListenerService` — ядра приложения.
+The project contains **22 unit tests** for `NotificationListenerService`:
 
-| Группа | Тестов | Что проверяют |
-|---|---|---|
-| `resolveTitle` | 8 | Приоритет заголовков: BigTitle → Title → tickerText → "" |
-| `resolveText` | 11 | Приоритет текста: BigText → TextLines → Text → SummaryText → tickerText → "" |
-| `isOngoing` | 3 | Определение `FLAG_ONGOING_EVENT` |
+| Group | Tests | What's tested |
+|-------|-------|---------------|
+| `resolveTitle` | 8 | Title priority: BigTitle → Title → tickerText → "" |
+| `resolveText` | 11 | Text priority: BigText → TextLines → Text → SummaryText → tickerText → "" |
+| `isOngoing` | 3 | Detection of `FLAG_ONGOING_EVENT` |
 
-**Стек:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker для `Bundle`).
-
-### Запуск тестов
+**Stack:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker for `Bundle`).
 
 ```bash
-# Unit-тесты
+# Run tests
 ./gradlew test
 
-# Покрытие кода (JaCoCo)
+# Code coverage
 ./gradlew jacocoTestReport
-```
-
-После `jacocoTestReport` откройте в браузере:
-```
-app/build/reports/jacoco/jacocoTestReport/html/index.html
+# Open: app/build/reports/jacoco/jacocoTestReport/html/index.html
 ```
 
 ### CI
 
-При каждом пуше в `main` тесты запускаются автоматически (шаг `Run unit tests`). Отчёт JaCoCo (HTML + XML) загружается как артефакт `coverage-report` и хранится 14 дней.
-
-### Добавление тестов
-
-Тесты находятся в `app/src/test/java/com/notifwebhook/`. Файл конфигурации inline mock maker:
-```
-app/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
-```
+Every push to `main` runs tests automatically. JaCoCo report (HTML+XML) uploaded as `coverage-report` artifact (14 days).
 
 ---
 
-## Сборка
+## Build
 
 ```bash
 ./gradlew assembleRelease
@@ -179,10 +177,18 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 
 ---
 
+## Permissions
+
+`INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `BIND_NOTIFICATION_LISTENER_SERVICE`
+
+---
+
 <p align="center">
   <a href="https://github.com/kas-cor/NotificationWebhook">📦 GitHub</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/kas-cor/NotificationWebhook/issues">🐛 Сообщить об ошибке</a>
+  <a href="https://github.com/kas-cor/NotificationWebhook/issues">🐛 Report a Bug</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/kas-cor/NotificationWebhook/discussions">💬 Обсуждения</a>
+  <a href="https://github.com/kas-cor/NotificationWebhook/discussions">💬 Discussions</a>
+  &nbsp;·&nbsp;
+  <a href="README_ru.md">🌐 Русская версия</a>
 </p>

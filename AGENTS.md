@@ -1,18 +1,18 @@
-# NotifWebhook — Android-приложение для пересылки уведомлений через Webhook
+# NotifWebhook — Android Notification Forwarding via Webhook
 
-## Обзор проекта
+## Project Overview
 
-**NotifWebhook** — это Android-приложение (API 34+, Android 14+ only), которое перехватывает уведомления других приложений через `NotificationListenerService` и отправляет их на указанный webhook в формате JSON (HTTP POST).
+**NotifWebhook** is an Android app (API 34+, Android 14+ only) that intercepts notifications from other apps via `NotificationListenerService` and forwards them to a specified webhook as JSON (HTTP POST).
 
-### Основной сценарий
+### Primary Use Case
 
-Пользователь устанавливает приложение, предоставляет доступ к уведомлениям, вводит URL webhook-получателя и (опционально) Bearer token для авторизации. Все уведомления (или выбранных приложений) отправляются на указанный URL как POST-запросы с JSON-полезной нагрузкой и заголовком `Authorization: Bearer <token>` (если токен задан).
+The user installs the app, grants notification access, enters a webhook URL, and (optionally) a Bearer token for authorization. All notifications (or from selected apps) are sent to the specified URL as POST requests with a JSON payload and an `Authorization: Bearer <token>` header (if a token is configured).
 
 ---
 
-## Технологии и зависимости
+## Tech Stack & Dependencies
 
-| Технология | Версия |
+| Technology | Version |
 |---|---|
 | Kotlin / JVM | 17 |
 | compileSdk / targetSdk / minSdk | 34 (Android 14) |
@@ -28,49 +28,49 @@
 
 ---
 
-## Архитектура
+## Architecture
 
 ```
-NotificationListenerService   ← системный bind через BIND_NOTIFICATION_LISTENER_SERVICE
+NotificationListenerService   ← system bind via BIND_NOTIFICATION_LISTENER_SERVICE
         │  onNotificationPosted()
-        │  → дедупликация (LinkedHashMap, окно 3 сек, до 50 записей)
+        │  → dedup (LinkedHashMap, 3s window, max 50 entries)
         │  → resolveTitle() / resolveText() — fallback chain
         │  → buildPayload() → JSONObject
         │  → sendToWebhook() ← Coroutine IO dispatcher
-        │    + Authorization: Bearer <token> (если задан)
+        │    + Authorization: Bearer <token> (if set)
         ▼
    Webhook HTTP POST
 
-ForegroundKeepAliveService   ← START_STICKY foreground-сервис (specialUse, API 34)
-        │  удерживает процесс от убийства (особенно на Xiaomi/Huawei)
-        │  requestRebind(NLS) при запуске
+ForegroundKeepAliveService   ← START_STICKY foreground service (specialUse, API 34)
+        │  keeps process alive (especially on Xiaomi/Huawei)
+        │  requestRebind(NLS) on start
         ▼
-   Постоянное уведомление в статус-баре
+   Persistent notification in status bar
 
 BootReceiver  ← BOOT_COMPLETED / MY_PACKAGE_REPLACED → ForegroundKeepAliveService.start()
-AppPrefs      ← SharedPreferences singleton (потокобезопасный)
-MainActivity  ← UI: статус слушателя, webhook URL, переключатели, список приложений
+AppPrefs      ← Thread-safe SharedPreferences singleton
+MainActivity  ← UI: listener status, webhook URL, toggles, app list
 ```
 
-### Компоненты
+### Components
 
-| Файл | Описание |
+| File | Description |
 |---|---|
-| `MainActivity.kt` | Главный UI: статус, ввод webhook URL, Bearer token, переключатели, список установленных приложений |
-| `NotificationListenerService.kt` | Ядро: перехват, дедупликация, resolveTitle/resolveText, JSON, HTTP POST |
-| `ForegroundKeepAliveService.kt` | Foreground-сервис для удержания процесса (specialUse, API 34) |
-| `BootReceiver.kt` | Автозапуск после перезагрузки / обновления пакета |
-| `AppPrefs.kt` | Singleton-обёртка над SharedPreferences |
+| `MainActivity.kt` | Main UI: status, webhook URL input, Bearer token, toggles, installed apps list |
+| `NotificationListenerService.kt` | Core: intercept, dedup, resolveTitle/resolveText, JSON, HTTP POST |
+| `ForegroundKeepAliveService.kt` | Foreground service to keep process alive (specialUse, API 34) |
+| `BootReceiver.kt` | Auto-start after reboot / package update |
+| `AppPrefs.kt` | Singleton wrapper around SharedPreferences |
 
-### JSON payload
+### JSON Payload
 
 ```json
 {
   "app_package":      "org.telegram.messenger",
   "app_name":         "Telegram",
-  "title":            "Александр",
-  "text":             "Привет!",
-  "sub_text":         "3 новых сообщения",
+  "title":            "Alexander",
+  "text":             "Hello!",
+  "sub_text":         "3 new messages",
   "category":         "msg",
   "priority":         0,
   "notification_id":  12345,
@@ -80,28 +80,28 @@ MainActivity  ← UI: статус слушателя, webhook URL, перекл
 }
 ```
 
-### Извлечение текста (fallback chain)
+### Text Resolution (Fallback Chain)
 
-**Заголовок:** `EXTRA_TITLE_BIG` → `EXTRA_CONVERSATION_TITLE` → `EXTRA_TITLE` → `tickerText` → название приложения
+**Title:** `EXTRA_TITLE_BIG` → `EXTRA_CONVERSATION_TITLE` → `EXTRA_TITLE` → `tickerText` → app name
 
-**Текст:** `MessagingStyle.messages` (чаты) → `EXTRA_BIG_TEXT` → `EXTRA_TEXT_LINES` → `EXTRA_TEXT` → `EXTRA_INFO_TEXT` → `EXTRA_SUMMARY_TEXT` → `tickerText` → заголовок
+**Text:** `MessagingStyle.messages` (chats) → `EXTRA_BIG_TEXT` → `EXTRA_TEXT_LINES` → `EXTRA_TEXT` → `EXTRA_INFO_TEXT` → `EXTRA_SUMMARY_TEXT` → `tickerText` → title
 
 ---
 
-## Unit-тесты
+## Unit Tests
 
-**22 теста** для `NotificationListenerServiceTest`:
+**22 tests** for `NotificationListenerServiceTest`:
 
-| Группа | Тестов | Что проверяют |
+| Group | Tests | What's tested |
 |---|---|---|
-| `resolveTitle` | 8 | Приоритет заголовков: BigTitle → Title → tickerText → "", пустые/пробельные значения |
-| `resolveText` | 11 | Приоритет текста: BigText → TextLines → Text → SummaryText → tickerText → "" |
-| `isOngoing` | 3 | `FLAG_ONGOING_EVENT`, без флага, комбинация флагов |
+| `resolveTitle` | 8 | Title priority: BigTitle → Title → tickerText → "", empty/whitespace values |
+| `resolveText` | 11 | Text priority: BigText → TextLines → Text → SummaryText → tickerText → "" |
+| `isOngoing` | 3 | `FLAG_ONGOING_EVENT`, without flag, flag combinations |
 
-**Запуск:** `./gradlew test`
-**Покрытие:** `./gradlew jacocoTestReport` → отчёт в `app/build/reports/jacoco/jacocoTestReport/html/index.html`
+**Run:** `./gradlew test`
+**Coverage:** `./gradlew jacocoTestReport` → report at `app/build/reports/jacoco/jacocoTestReport/html/index.html`
 
-**Моки:** `Bundle` (final class) — мокается через inline mock maker (`mockito-extensions/org.mockito.plugins.MockMaker`). `Notification` — поля `tickerText`, `flags` устанавливаются напрямую на mock-объекте.
+**Mocks:** `Bundle` (final class) is mocked via inline mock maker (`mockito-extensions/org.mockito.plugins.MockMaker`). `Notification` — fields `tickerText`, `flags` are set directly on the mock object.
 
 ---
 
@@ -109,75 +109,63 @@ MainActivity  ← UI: статус слушателя, webhook URL, перекл
 
 Workflow: `.github/workflows/ci.yml`
 
-### Триггеры
+### Triggers
 
-- **Push** в `main`
-- **Pull Request** в `main`
-- **Push тега** `v*` (например, `v1.1`)
-- **Ручной запуск** через `workflow_dispatch`
+- **Push** to `main`
+- **Pull Request** to `main`
+- **Push tag** `v*` (e.g., `v1.1`)
+- **Manual trigger** via `workflow_dispatch`
 
-### Шаги сборки (build job)
+### Build Steps (build job)
 
 1. **Checkout** + JDK 17 + Android SDK licenses
-2. **Bump версии** (только для тегов `v*`):
-   - `versionName` обновляется из тега (например, `v1.1` → `"1.1"`)
-   - `versionCode` инкрементируется (+1 от текущего)
-3. **Commit version bump** (только для тегов `v*`): коммитит изменения в `app/build.gradle` в ветку `main` от имени `github-actions[bot]`
-4. **Кеширование Gradle**
+2. **Version bump** (only for `v*` tags):
+   - `versionName` updated from tag (e.g., `v1.1` → `"1.1"`)
+   - `versionCode` incremented (+1 from current)
+3. **Commit version bump** (only for `v*` tags): commits changes to `app/build.gradle` on `main` as `github-actions[bot]`
+4. **Gradle caching**
 5. **Lint** (`lintRelease`)
-6. **Unit-тесты** (`test`)
-7. **JaCoCo coverage** (`jacocoTestReport`) → HTML и XML артефакты
-8. **Сборка Debug APK** (`assembleDebug`)
-9. **Декодирование keystore** из секрета `KEYSTORE_BASE64`
-10. **Сборка Release APK** (`assembleRelease`) с `KEYSTORE_PASSWORD`
-11. **Переименование APK:**
+6. **Unit tests** (`test`)
+7. **JaCoCo coverage** (`jacocoTestReport`) → HTML and XML artifacts
+8. **Debug APK build** (`assembleDebug`)
+9. **Keystore decode** from `KEYSTORE_BASE64` secret
+10. **Release APK build** (`assembleRelease`) with `KEYSTORE_PASSWORD`
+11. **APK renaming:**
     - Debug: `app-debug.apk` → `NotifWebhook-<version>-debug.apk`
     - Release: `app-release.apk` → `NotifWebhook-<version>.apk`
     - Unsigned: `app-release-unsigned.apk` → `NotifWebhook-<version>-unsigned.apk`
-12. **Загрузка артефактов:**
-    - Debug APK (7 дней)
-    - Signed Release APK (30 дней)
-    - Unsigned APK как fallback (7 дней)
+12. **Artifact upload:**
+    - Debug APK (7 days)
+    - Signed Release APK (30 days)
+    - Unsigned APK as fallback (7 days)
 
-### Релизы (release job)
+### Releases (release job)
 
-При пуше тега `v*` дополнительно запускается job `release`:
-- Скачивает signed APK по имени артефакта `NotifWebhook-<version>`
-- Генерирует changelog из коммитов между предыдущим тегом и текущим
-- Создаёт GitHub Release с телом заметок и APK-файлом
+On `v*` tag push, an additional `release` job runs:
+- Downloads signed APK by artifact name `NotifWebhook-<version>`
+- Generates changelog from commits between previous tag and current
+- Creates GitHub Release with notes and APK
 
-### Секреты GitHub
+### GitHub Secrets
 
-| Secret | Описание |
+| Secret | Description |
 |---|---|
-| `KEYSTORE_BASE64` | `notwebhook-release.jks` в base64 (`base64 -w0 notwebhook-release.jks`) |
-| `KEYSTORE_PASSWORD` | Пароль от keystore |
+| `KEYSTORE_BASE64` | `notwebhook-release.jks` in base64 (`base64 -w0 notwebhook-release.jks`) |
+| `KEYSTORE_PASSWORD` | Keystore password |
 
-### Пример полного процесса релиза
+### Full Release Process
 
 ```bash
-# 1. Подготовить изменения, закоммитить и запушить в main
-git add .
-git commit -m "Добавлена новая фича"
-git push origin main
+git add . && git commit -m "New feature" && git push origin main
+# Wait for green CI
 
-# 2. Дождаться зелёного CI на main (lint + тесты + сборка)
-
-# 3. Создать и запушить тег новой версии
-git tag v1.1
-git push origin v1.1
-
-# CI автоматически:
-#   a) Обновит versionName "1.1" и versionCode N+1 в build.gradle
-#   b) Закоммитит эти изменения в main
-#   c) Соберёт debug + release APK
-#   d) Переименует APK в NotifWebhook-1.1-debug.apk и NotifWebhook-1.1.apk
-#   e) Создаст GitHub Release "v1.1" с APK и changelog'ом
+git tag v1.1 && git push origin v1.1
+# CI auto: bumps version, builds APKs, creates GitHub Release
 ```
 
-### Имена файлов APK
+### APK File Names
 
-| Тип | Формат | Пример |
+| Type | Format | Example |
 |---|---|---|
 | Debug | `NotifWebhook-<version>-debug.apk` | `NotifWebhook-1.1-debug.apk` |
 | Release (signed) | `NotifWebhook-<version>.apk` | `NotifWebhook-1.1.apk` |
@@ -185,122 +173,95 @@ git push origin v1.1
 
 ---
 
-## Настройка (шаги для пользователя)
+## Setup (User Steps)
 
-1. **Установить APK** (скачать из [Releases](https://github.com/kas-cor/NotificationWebhook/releases))
-2. **Предоставить доступ к уведомлениям:**
-   - Нажмите «Предоставить доступ» в приложении
-   - В системных настройках найдите NotifWebhook → включите
-3. **Отключить оптимизацию батареи:**
-   - Нажмите кнопку в приложении → разрешите
-4. **Ввести webhook URL** → **Сохранить**
-5. *(опционально)* **Ввести Bearer token** в поле ниже URL → **Сохранить** (добавляется как `Authorization: Bearer <token>` к каждому запросу)
-6. **Нажать «Тест POST»** — убедиться, что HTTP 200
-7. **Включить «Пересылать уведомления»**
-8. *(опционально)* Выбрать конкретные приложения (пусто = все)
+1. **Install APK** (download from [Releases](https://github.com/kas-cor/NotificationWebhook/releases))
+2. **Grant notification access:**
+   - Tap "Grant access" in the app
+   - In system settings, find NotifWebhook → enable
+3. **Disable battery optimization:**
+   - Tap the button in the app → allow
+4. **Enter webhook URL** → **Save**
+5. *(optional)* **Enter Bearer token** → **Save**
+6. **Tap "Test POST"** — verify HTTP 200
+7. **Enable "Forward notifications"**
+8. *(optional)* Select specific apps (empty = all)
 
-### Для Xiaomi / HyperOS / MIUI
+### For Xiaomi / HyperOS / MIUI
 
-Система безопасности Xiaomi агрессивно блокирует фоновые сервисы:
-
-1. **Настройки → Приложения → Управление → NotifWebhook**
-   - Включите **«Автозапуск»**
-2. **Экономия энергии → NotifWebhook → «Без ограничений»**
-3. **Закрепите NotifWebhook** в списке последних приложений
+1. **Settings → Apps → Manage → NotifWebhook** → enable **"Auto-start"**
+2. **Battery & Performance → NotifWebhook → "No restrictions"**
+3. **Pin NotifWebhook** in recent apps
 
 ---
 
-## История отправки Webhook
+## Webhook Send History
 
-Приложение сохраняет последние **50 отправок** webhook в локальном хранилище.
+The app stores the last **50 webhook sends** locally. Each record contains app, title/text, result (success/error), HTTP code, and timestamp.
 
-**Каждая запись содержит:**
-- Приложение (package + label)
-- Заголовок и текст уведомления
-- Результат (успех/ошибка)
-- HTTP-код ответа
-- Временная метка
+## Exclusion Rules
 
-**UI:**
-- Основной экран показывает сводку (количество, успешные, последняя запись)
-- Кнопка «Просмотреть историю» открывает диалог со списком последних 50 записей
-- Кнопка «Очистить» удаляет всю историю
+Notifications can be filtered client-side before sending:
+- Field: `title`, `text`, `app_name`, `app_package`
+- Pattern: case-insensitive substring match
+- Any rule match → notification is dropped (never sent)
 
-История также сохраняется для тестовых отправок.
+## Android 14+ (API 34) Specifics
 
-## Правила исключений
-
-Позволяют пропускать уведомления, если в указанном поле найдена подстрока.
-
-**Правило содержит:**
-- `field` — поле для поиска: `title`, `text`, `app_name`, `app_package`
-- `pattern` — строка для поиска (регистронезависимое вхождение)
-
-**UI:**
-- Список правил с кнопкой удаления у каждого
-- Кнопка «Добавить правило» → диалог с выбором поля и вводом текста
-
-**Логика (NLS):**
-- Проверка выполняется **до** дедупликации и отправки
-- Если хотя бы одно правило совпало — уведомление пропускается
-- Поиск регистронезависимый (`contains(ignoreCase = true)`)
-
-## Особенности Android 14+ (API 34)
-
-| Проблема | Решение |
+| Issue | Solution |
 |---|---|
-| `startService()` для NLS не работает | Только системный bind через `BIND_NOTIFICATION_LISTENER_SERVICE` |
-| Сервис убивается OEM | `ForegroundKeepAliveService` с `START_STICKY` |
-| `foregroundServiceType` обязателен | `specialUse` в манифесте |
-| `POST_NOTIFICATIONS` permission | Запрашивается в `onResume` (API 33+) |
-| Агрессивная батарея Xiaomi/Huawei | Кнопка исключения из оптимизации + «Автозапуск» вручную |
-| Дубли уведомлений | Дедупликация: LinkedHashMap с окном 3 сек, макс. 50 записей |
-| NLS отключается после перезапуска | `requestRebind()` при старте + повтор через 5 сек |
+| `startService()` for NLS doesn't work | System bind via `BIND_NOTIFICATION_LISTENER_SERVICE` only |
+| Service killed by OEM | `ForegroundKeepAliveService` with `START_STICKY` |
+| `foregroundServiceType` required | `specialUse` in manifest |
+| `POST_NOTIFICATIONS` permission | Requested in `onResume` (API 33+) |
+| Aggressive battery on Xiaomi/Huawei | Exempt from optimization + manual auto-start |
+| Duplicate notifications | Dedup via `LinkedHashMap`, 3s window, max 50 entries |
+| NLS disabled after reboot | `requestRebind()` on service start + retry after 5s |
 
 ---
 
-## Разрешения (Permissions)
+## Permissions
 
-- `INTERNET` — HTTP-запросы к webhook
-- `ACCESS_NETWORK_STATE` — проверка сети
-- `FOREGROUND_SERVICE` — foreground-сервис
-- `FOREGROUND_SERVICE_SPECIAL_USE` — тип specialUse для API 34
-- `POST_NOTIFICATIONS` — показ уведомлений (API 33+)
-- `RECEIVE_BOOT_COMPLETED` — автозапуск
-- `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` — исключение из оптимизации батареи
-- `BIND_NOTIFICATION_LISTENER_SERVICE` — для NLS (системное)
-
----
-
-## Конвенции кода
-
-- **Язык**: Kotlin, JVM target 17
-- **Корутины**: `Dispatchers.IO` для сетевых операций, `Dispatchers.Main` для UI
-- **SharedPreferences**: потокобезопасный singleton `AppPrefs`
-- **Дедупликация**: `LinkedHashMap` с окном 3 секунды, максимум 50 записей
-- **Сетевые запросы**: стандартная `HttpURLConnection`, синхронные вызовы в IO-диспетчере. Если в настройках задан Bearer token, добавляется заголовок `Authorization: Bearer <token>`
-- **UI**: Material Components, кастомный layout без Compose, `RecyclerView` для списка приложений
-- **Логи**: тег `NLS_Webhook` для ListenerService, `KeepAliveService` для foreground-сервиса, `BootReceiver` для ресивера
-- **Тестирование**: JUnit + Mockito (inline mock maker для final-классов), 22 unit-теста
-- **CI**: lint → test → JaCoCo → assembleDebug → assembleRelease → артефакты
-- **Подпись APK**: через секреты `KEYSTORE_BASE64` + `KEYSTORE_PASSWORD`
+- `INTERNET` — HTTP requests to webhook
+- `ACCESS_NETWORK_STATE` — network checks
+- `FOREGROUND_SERVICE` — foreground service
+- `FOREGROUND_SERVICE_SPECIAL_USE` — specialUse type (API 34)
+- `POST_NOTIFICATIONS` — show notifications (API 33+)
+- `RECEIVE_BOOT_COMPLETED` — auto-start
+- `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` — exempt from battery optimization
+- `BIND_NOTIFICATION_LISTENER_SERVICE` — for NLS (system)
 
 ---
 
-## Сборка
+## Code Conventions
+
+- **Language:** Kotlin, JVM target 17
+- **Coroutines:** `Dispatchers.IO` for network, `Dispatchers.Main` for UI
+- **SharedPreferences:** Thread-safe singleton via `AppPrefs`
+- **Dedup:** `LinkedHashMap`, 3s window, max 50 entries
+- **Network:** Standard `HttpURLConnection`, synchronous calls in IO dispatcher. If Bearer token is set, adds `Authorization: Bearer <token>` header
+- **UI:** Material Components, custom layout (no Compose), `RecyclerView` for app list
+- **Logging:** Tag `NLS_Webhook` for ListenerService, `KeepAliveService` for foreground service, `BootReceiver` for receiver
+- **Testing:** JUnit + Mockito (inline mock maker for final classes), 22 unit tests
+- **CI:** lint → test → JaCoCo → assembleDebug → assembleRelease → artifacts
+- **APK signing:** via secrets `KEYSTORE_BASE64` + `KEYSTORE_PASSWORD`
+
+---
+
+## Build
 
 ```bash
 # Debug
 ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 
-# Release (подпись — если настроены секреты локально)
-export KEYSTORE_PASSWORD='ваш_пароль'
+# Release (if secrets configured locally)
+export KEYSTORE_PASSWORD='your_password'
 ./gradlew assembleRelease
 adb install -r app/build/outputs/apk/release/app-release.apk
 
-# Тесты + покрытие
+# Tests + coverage
 ./gradlew test
 ./gradlew jacocoTestReport
-# Открыть: app/build/reports/jacoco/jacocoTestReport/html/index.html
+# Open: app/build/reports/jacoco/jacocoTestReport/html/index.html
 ```
