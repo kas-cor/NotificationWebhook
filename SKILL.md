@@ -1,6 +1,6 @@
 ---
 name: notification-webhook
-description: "Complete NotifWebhook integration for AI agents: Android client + Python server (FastAPI + SQLite) — receive, store, analyze, and monitor Android notifications"
+description: "End-to-end notification pipeline: Android app captures phone notifications, Python server receives and stores them in SQLite with CLI analytics and cron monitoring"
 version: 2.0.0
 author: kas-cor
 license: MIT
@@ -10,15 +10,13 @@ tags:
   - notifications
   - sqlite
   - fastapi
-  - ai-agent
-  - hermes
-  - openclaw
   - tailscale
   - analytics
 platforms: [android, linux]
 setup_needed: true
 required_commands:
   - python3
+  - pip
   - tailscale
   - curl
   - systemctl
@@ -29,9 +27,9 @@ required_environment_variables:
   - NOTIF_WEBHOOK_AUTH_TOKEN
 ---
 
-# NotifWebhook — AI-Agent Integration
+# NotifWebhook — Server-Side Integration Guide
 
-> **One project, two components:** Android client captures phone notifications, Python server receives, stores, and analyzes them.
+> **Two components, one pipeline:** Android app captures notifications → Python server receives, stores, and analyzes them.
 
 ---
 
@@ -40,190 +38,142 @@ required_environment_variables:
 | Component | Stack | Purpose |
 |-----------|-------|---------|
 | **Android client** | Kotlin, API 34+ | Captures notifications via `NotificationListenerService` → HTTP POST |
-| **Python server** | FastAPI + aiosqlite + uvicorn | Webhook receiver, SQLite storage, REST API |
-| **CLI analyzer** | Python (argparse) | Search, reports, statistics, export |
-| **Watchdog** | Python (cron) | Auto-monitoring with importance filtering |
+| **Python server** | FastAPI + aiosqlite + uvicorn | Webhook receiver, SQLite storage, health endpoint |
+| **CLI analyzer** | Python (argparse) | Search, reports, statistics, export from SQLite |
+| **Watchdog** | Python | Cron-based auto-monitoring with importance filtering |
 
 ---
 
 ## 🏗 Architecture
 
 ```
-Android device                          VPS / server
-┌─────────────────────┐                ┌──────────────────────────────┐
-│ Any Android App    │                 │                             │
-│         ↓          │  HTTP POST      │  server.py (FastAPI)        │
-│ NotificationListener│ ──────────────→│  Port 8790                  │
-│ Service (NLS)      │    JSON payload │  ┌─ /health                 │
-│   ┌ dedup          │                 │  ├─ /webhook  ← POST        │
-│   ├ resolveTitle() │                 │  └─ SQLite                  │
-│   └ buildPayload() │                 │     notif_webhook.db        │
-└─────────────────────┘                └──────────────────────────────┘
-                                                │
-                               ┌────────────────┼────────────────┐
-                               ▼                ▼                ▼
-                         🔍 analyze.py    🤖 watchdog.py    🔔 Cron summary
-                         (CLI queries)    (monitoring)      (Telegram)
+┌─────────────────────┐     HTTP POST     ┌─────────────────────────────┐
+│   Android device    │   ────────────→   │   server.py (FastAPI)      │
+│  (any app with NLS) │   JSON payload    │   Port 8790                │
+└─────────────────────┘                   │   ├── /health              │
+                                          │   └── /webhook             │
+                                          │         ↓                  │
+                                          │   SQLite (notif_webhook.db)│
+                                          └─────────────────────────────┘
+                                                      │
+                                         ┌────────────┼────────────┐
+                                         ▼            ▼            ▼
+                                    analyze.py   watchdog.py   Cron summary
+                                  (CLI queries) (monitoring)  (any output)
 ```
 
-### Data flow
-
+**Data flow:**
 ```
-Android Notification → HTTP POST → server.py (/webhook) → SQLite
-                                                               ↓
-                                                     analyze.py (CLI) → Telegram response
-                                                     watchdog.py (cron) → Telegram summary
+Android notification → HTTP POST → server.py → SQLite
+                                                ↓
+                                      analyze.py / watchdog.py → reports
 ```
 
 ---
 
-## 🚀 Quick start for AI agents
+## 🚀 Quick Start
 
-### 1. Server setup
+### Prerequisites
+- Python 3.10+ with `fastapi`, `uvicorn`, `aiosqlite`
+- Android device with NotifWebhook app installed
+- (Optional) A way to expose the server to the internet (Tailscale, Cloudflare, ngrok, or direct IP)
 
+### 1. Install Dependencies
+```bash
+cd server/
+pip install fastapi uvicorn aiosqlite
+```
+
+### 2. Configure Environment
+```bash
+export NOTIF_WEBHOOK_PORT=8790
+export NOTIF_WEBHOOK_BIND=127.0.0.1
+export NOTIF_WEBHOOK_DB_DIR="$HOME/notifwebhook_data"
+export NOTIF_WEBHOOK_AUTH_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+```
+
+Optionally save to `.env` in the project root:
+```bash
+cat <<EOF >> .env
+NOTIF_WEBHOOK_PORT=8790
+NOTIF_WEBHOOK_BIND=127.0.0.1
+NOTIF_WEBHOOK_DB_DIR=$HOME/notifwebhook_data
+NOTIF_WEBHOOK_AUTH_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
+EOF
+```
+
+### 3. Quick Test (inline)
+```bash
+python3 server/server.py &
+sleep 2
+curl http://127.0.0.1:8790/health  # → {"status":"ok","db":"..."}
+```
+
+### 4. Production Setup (systemd)
 ```bash
 cd server/
 bash setup.sh
 ```
+`setup.sh` creates the DB directory, generates auth token, installs and starts `notif-webhook.service`.
 
-`setup.sh` will:
-- Create `~/.hermes/data/` for the database
-- Generate `NOTIF_WEBHOOK_AUTH_TOKEN` and save to `.env`
-- Install and start `notif-webhook.service` (systemd)
-- Print the tailscale funnel command
+### 5. Configure the Android App
+- **Webhook URL:** depends on how you expose the server (see section below)
+- **Bearer token:** the value of `NOTIF_WEBHOOK_AUTH_TOKEN`
 
-### 2. Expose via Tailscale Funnel
+### 6. Choose How to Expose the Server
 
+The server binds to `127.0.0.1:8790` by default — only accessible locally. Pick one method below to make it reachable from your phone.
+
+| Method | HTTPS | Cost | Best for |
+|--------|-------|------|----------|
+| **Tailscale Funnel** | ✅ Yes | Free | Private use, no domain needed |
+| **Cloudflare Tunnel** | ✅ Yes | Free | Custom domain, team use |
+| **ngrok** | ✅ Yes | Free tier | Quick testing, demos |
+| **Direct (IP:Port)** | ❌ No | Free | LAN only, VPS behind reverse proxy |
+
+#### A) Tailscale Funnel (recommended for privacy)
+Requires [Tailscale](https://tailscale.com) installed on both server and phone.
 ```bash
 sudo tailscale funnel --bg --set-path '/notif-webhook' 'http://127.0.0.1:8790'
 ```
+Webhook URL: `https://<your-tailnet>.ts.net/notif-webhook/webhook`
 
-Your webhook URL will be:
-```
-https://<tailscale-hostname>.ts.net/notif-webhook/webhook
-```
-
-### 3. Configure the Android app
-
-In NotifWebhook on your phone, set:
-
-- **Webhook URL:** `https://<tailscale-hostname>.ts.net/notif-webhook/webhook`
-- **Bearer token:** from `~/.hermes/.env` (optional but recommended)
-
-### 4. Verify it works
-
+#### B) Cloudflare Tunnel
+Requires `cloudflared` installed.
 ```bash
-# Health check
-curl http://127.0.0.1:8790/health
+cloudflared tunnel --url http://127.0.0.1:8790
+```
+Webhook URL: `https://<random>.trycloudflare.com/webhook`
 
-# Test notification
+#### C) ngrok
+```bash
+ngrok http http://127.0.0.1:8790
+```
+Webhook URL: `https://<random>.ngrok.io/webhook`
+
+#### D) Direct HTTP (LAN / VPS without HTTPS)
+Change bind to `0.0.0.0` and open the port:
+```bash
+export NOTIF_WEBHOOK_BIND=0.0.0.0
+sudo ufw allow 8790/tcp  # if using UFW
+```
+Webhook URL: `http://<server-ip>:8790/webhook`
+> ⚠ No encryption — only use on trusted networks or behind a reverse proxy (nginx/Caddy) with your own TLS.
+
+### 7. Verify End-to-End
+```bash
 curl -X POST 'http://127.0.0.1:8790/webhook' \
-  -H 'Authorization: Bearer your-token-here' \
+  -H "Authorization: Bearer $NOTIF_WEBHOOK_AUTH_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"app_package":"com.test","app_name":"Test","title":"hello","text":"world"}'
-
 # → 200 {"ok": true, "id": 1}
 ```
 
 ---
 
-## 🤖 AI agent integration patterns
-
-### When to use NotifWebhook
-
-An AI agent (Hermes / OpenClaw) uses NotifWebhook in these scenarios:
-
-| Scenario | What the agent does | Command |
-|----------|-------------------|---------|
-| **"What's new in chats?"** | Analyzes notifications for a period | `analyze.py report --since today` |
-| **"Show latest notifications"** | Prints recent feed | `analyze.py latest 15` |
-| **"How many notifications?"** | Counts stats | `analyze.py stats --since 7d` |
-| **"Search notifications"** | Searches by text | `analyze.py search "deploy"` |
-| **"Export notifications"** | Dumps to files | `analyze.py export --since yesterday` |
-| **Auto-monitoring (cron)** | Hourly check for important items | `watchdog.py` (via cron) |
-
-### Watchdog: auto-monitoring
-
-The watchdog runs on a cron schedule (e.g. hourly) and:
-
-1. Stores `last_processed_id` — the last processed notification ID
-2. On each run, only fetches NEW notifications (`id > checkpoint`)
-3. Applies importance rules:
-   - `always_skip.patterns` — checked against title+text
-   - `always_skip.title` — checked against title field (sender: Hermes, Claw)
-   - `always_include.patterns` — checked against title+text (errors, deploy…)
-   - `always_include.apps` — checked against app_name (GitHub, GitLab…)
-4. If important items found → prints output (cron delivers it)
-5. If nothing important or nothing new → stays silent
-6. Checkpoint updates **only after** successful analysis
-
-**State file:** `~/.hermes/data/notif_webhook_watchdog.json`
-
-#### JSON mode (for LLM summarization)
-
-The `--json` flag outputs deduplicated, grouped data:
-
-```bash
-python3 server/watchdog.py --json
-```
-
-Example output:
-```json
-{
-  "period": {"from": "2026-05-20T18:05:20Z", "to": "2026-05-20T18:57:41Z"},
-  "total_new": 42,
-  "total_important": 5,
-  "total_deduped": 3,
-  "groups": {
-    "org.telegram.messenger": {
-      "app_name": "Telegram",
-      "notifications": [
-        {"title": "Dev chat", "text": "deploy passed", "reason": "include-pattern: 'deploy'", "timestamp_iso": "..."}
-      ]
-    }
-  }
-}
-```
-
-The agent receives this JSON and summarizes it into human-readable text.
-
-#### Training importance rules
-
-```bash
-# Mark as important
-python3 server/watchdog.py learn --important "deploy"
-
-# Mark to skip
-python3 server/watchdog.py learn --skip "random chat"
-
-# Ignore sender by title
-python3 server/watchdog.py learn --skip-title "Hermesa"
-
-# Add app to important
-python3 server/watchdog.py learn --important-app "GitHub"
-
-# View current rules
-python3 server/watchdog.py rules
-
-# Reset checkpoint (re-process everything)
-python3 server/watchdog.py reset-checkpoint
-```
-
-#### Default importance rules
-
-| Type | Checked against | What's considered important |
-|------|----------------|----------------------------|
-| 🔴 `include.patterns` | `title + text` | Deploys, errors, 502/503, nginx, mentions, CI/CD, security, alerts |
-| 📱 `include.apps` | `app_name` | GitHub, GitLab |
-| ⛔ `skip.patterns` | `title + text` | Test notifications, reactions (👍, 👌), short replies, join/leave |
-| 🚫 `skip.title` | `title` | Hermes, Claw (bot senders) |
-| 📊 `medium_apps` | `app_name` | Telegram, Discord — medium priority by default |
-
----
-
 ## 🗄 Database
 
-**File:** `~/.hermes/data/notif_webhook.db`
+**Default path:** `$NOTIF_WEBHOOK_DB_DIR/notif_webhook.db` (defaults to `./data/`)
 
 ```sql
 notifications (
@@ -246,12 +196,9 @@ notifications (
 
 **Indexes:** `app_package`, `app_name`, `received_at`.
 
-### Direct SQL queries (when analyze.py truncates text)
-
-`analyze.py search` only shows the `text` field, which may be truncated (especially in chat groups). Use `raw_data` for the full context:
-
+### Full-Context SQL (when `analyze.py search` truncates)
 ```bash
-sqlite3 /path/to/notif_webhook.db "
+sqlite3 "$NOTIF_WEBHOOK_DB_DIR/notif_webhook.db" "
 SELECT substr(raw_data,1,800) FROM notifications
 WHERE raw_data LIKE '%search_term%'
 ORDER BY timestamp_ms DESC LIMIT 5;
@@ -260,149 +207,167 @@ ORDER BY timestamp_ms DESC LIMIT 5;
 
 ---
 
-## 📋 Group/chat context reference (for summarization)
+## 📊 CLI Analyzer (`server/analyze.py`)
 
-When summarizing notification JSON, use this reference:
+Commands are run from the project root: `python3 server/analyze.py <command> [args]`
 
-| Group (title/app_name) | Context |
-|------------------------|---------|
-| **Project Dev Chat** | Internal developer group. Casual conversation mixed with work. |
-| **Project Official** | Official project group. Work-only, strict tone. |
-| **Hermes** / **Claw** | AI agents of the system. **Always ignore** during summarization. |
+| Command | Description | Example |
+|---------|-------------|---------|
+| `latest [N]` | Show last N notifications | `python3 server/analyze.py latest 15` |
+| `today` | Notifications from today UTC | `python3 server/analyze.py today` |
+| `report` | Categorized report by app | `python3 server/analyze.py report --since today` |
+| `by-app` | Apps sorted by activity | `python3 server/analyze.py by-app --since 7d` |
+| `search <term>` | Full-text search | `python3 server/analyze.py search "deploy"` |
+| `stats` | Summary statistics | `python3 server/analyze.py stats --since 2026-05-13 --until 2026-05-20` |
+| `export` | Export to Markdown/JSON | `python3 server/analyze.py export --since yesterday` |
+
+### Date Formats
+`YYYY-MM-DD`, `today`, `yesterday`, `7d` (N days ago), `6h` (N hours ago).
+
+### Output Details
+- **`report`** groups apps by category: 💬 Messengers, 🛠 Dev/DevOps, 📧 Email, 📱 Social, 🏢 Work, 📦 Other
+- **`export`** (Markdown) creates one file per category in `$NOTIF_WEBHOOK_DB_DIR/exports/<timestamp>/`
+- **`export --format json`** dumps all records to a single JSON file
 
 ---
 
-## 🛠 Server management commands
+## 🤖 Watchdog Auto-Monitoring (`server/watchdog.py`)
 
-### Status and logs
+Designed for cron-based monitoring of new notifications.
 
+### How It Works
+1. Stores `last_processed_id` in a JSON state file
+2. On each run, fetches only NEW records (`id > last_processed_id`)
+3. Applies configurable importance rules (see below)
+4. If important content found → prints summary to stdout
+5. If nothing important or nothing new → exits silently
+6. Checkpoint updates **only after** successful processing
+
+**State file:** `$NOTIF_WEBHOOK_DB_DIR/notif_webhook_watchdog.json`
+
+### JSON Mode (for LLM / script consumption)
+```bash
+python3 server/watchdog.py --json
+```
+Outputs deduplicated, grouped JSON:
+```json
+{
+  "period": {"from": "...", "to": "..."},
+  "total_new": 42,
+  "total_important": 5,
+  "total_deduped": 3,
+  "groups": {
+    "org.telegram.messenger": {
+      "app_name": "Telegram",
+      "notifications": [
+        {"title": "...", "text": "...", "reason": "include-pattern: 'deploy'", "timestamp_iso": "..."}
+      ]
+    }
+  }
+}
+```
+
+### Training Importance Rules
+```bash
+# Mark a keyword as important
+python3 server/watchdog.py learn --important "deploy"
+
+# Skip notifications matching a pattern
+python3 server/watchdog.py learn --skip "random chat"
+
+# Ignore a specific sender (by title field)
+python3 server/watchdog.py learn --skip-title "NotificationBot"
+
+# Add a whole app to important
+python3 server/watchdog.py learn --important-app "GitHub"
+
+# View current rules
+python3 server/watchdog.py rules
+
+# Reset checkpoint (re-process everything)
+python3 server/watchdog.py reset-checkpoint
+```
+
+### Default Importance Rules
+| Type | Field checked | Matches |
+|------|--------------|---------|
+| 🔴 `include.patterns` | title + text | deploys, errors, 502/503, nginx, CI/CD, security, alerts |
+| 📱 `include.apps` | app_name | GitHub, GitLab |
+| ⛔ `skip.patterns` | title + text | test notifications, reactions (👍, 👌), short replies, join/leave |
+| 🚫 `skip.title` | title field | Bot senders (customizable per deployment) |
+| 📊 `medium_apps` | app_name | Telegram, Discord — medium priority by default |
+
+All rules are editable at runtime with `learn` and persist in the state file.
+
+---
+
+## 🛠 Server Management
+
+### Systemd Service
 ```bash
 sudo systemctl status notif-webhook.service
 sudo journalctl -u notif-webhook.service -n 50 -f
-sudo journalctl -u notif-webhook.service --since "1 hour ago"
-```
-
-### Restart
-
-```bash
 sudo systemctl restart notif-webhook.service
 ```
 
-### Restoring dependencies (uv venv)
-
-**Symptom:** service in restart loop, `journalctl` shows `ModuleNotFoundError`.
-**Cause:** dependency dropped from uv venv (usually after Python/uv update).
-
+### Direct Run
 ```bash
-uv pip install aiosqlite --python /path/to/venv/bin/python3
+python3 server/server.py
+```
+
+### Dependency Recovery
+If the service enters a restart loop (e.g. after Python upgrade):
+```bash
+pip install aiosqlite
 sudo systemctl restart notif-webhook.service
 ```
 
 ---
 
-## 📊 CLI analyzer (analyze.py)
-
-All commands run via `server/analyze.py` (or a configured alias/symlink).
-
-### Latest N notifications
-
-```bash
-python3 server/analyze.py latest 15
-```
-
-### Today
-
-```bash
-python3 server/analyze.py today
-```
-
-### App report for a time period
-
-```bash
-python3 server/analyze.py report --app "Telegram" --since today
-python3 server/analyze.py report --app "Project" --since 2026-05-18 --until 2026-05-20
-```
-
-### Apps sorted by activity
-
-```bash
-python3 server/analyze.py by-app --since today
-```
-
-### Full-text search
-
-```bash
-python3 server/analyze.py search "deploy"
-```
-
-### Statistics
-
-```bash
-python3 server/analyze.py stats --since 2026-05-13 --until 2026-05-20
-python3 server/analyze.py stats --since 7d
-```
-
-Date formats: `YYYY-MM-DD`, `today`, `yesterday`, `7d` (N days), `6h` (N hours).
-
-### Export
-
-```bash
-python3 server/analyze.py export --since yesterday              # → Markdown (by category)
-python3 server/analyze.py export --since today --format json    # → JSON
-```
-
-Exports are saved to `~/.hermes/data/exports/YYYYMMDD_HHMMSS/`.
-
----
-
-## 📁 Repository structure
+## 📁 Repository Structure
 
 ```
 NotificationWebhook/
-├── SKILL.md              ← This file — AI agent integration guide
-├── AGENTS.md             ← Android client documentation for agents
+├── SKILL.md              ← This file — integration guide
+├── AGENTS.md             ← Android client internals for agent developers
 ├── README.md             ← For humans: features, setup, screenshots
 ├── LICENSE               ← MIT
 │
 ├── app/                  ← Android client (Kotlin)
-│   └── src/
-│       └── main/
-│           └── java/com/notifwebhook/
-│               ├── MainActivity.kt                     — UI
-│               ├── NotificationListenerService.kt      — Core: intercept, dedup, POST
-│               ├── ForegroundKeepAliveService.kt       — Foreground service
-│               ├── BootReceiver.kt                     — Auto-start
-│               └── AppPrefs.kt                         — SharedPreferences
+│   └── src/main/java/com/notifwebhook/
+│       ├── MainActivity.kt
+│       ├── NotificationListenerService.kt
+│       ├── ForegroundKeepAliveService.kt
+│       ├── BootReceiver.kt
+│       └── AppPrefs.kt
 │
-├── server/               ← Python server (FastAPI + SQLite)
+├── server/               ← Python backend
 │   ├── server.py         — FastAPI webhook receiver
 │   ├── analyze.py        — CLI analyzer & reports
 │   ├── watchdog.py       — Cron monitoring with importance filter
-│   └── setup.sh          — Installer: DB, systemd, env
+│   └── setup.sh          — systemd installer
 │
-├── build.gradle          ← Android build
+├── build.gradle
 ├── settings.gradle
 ├── gradle/
 ├── gradlew
-└── .github/
-    └── workflows/
-        └── ci.yml        ← CI/CD: lint → test → JaCoCo → build → release
+└── .github/workflows/
+    └── ci.yml            ← CI/CD: build, test, release
 ```
 
 ---
 
-## 📱 Android client (summary)
+## 📱 Android Client — Key Details
 
 **Full documentation:** [AGENTS.md](AGENTS.md)
 
-### JSON Payload (sent to server)
-
+### JSON Payload
 ```json
 {
   "app_package":      "org.telegram.messenger",
   "app_name":         "Telegram",
-  "title":            "Alexander",
-  "text":             "Hello!",
+  "title":            "Contact Name",
+  "text":             "Message content",
   "sub_text":         "3 new messages",
   "category":         "msg",
   "priority":         0,
@@ -413,57 +378,47 @@ NotificationWebhook/
 }
 ```
 
-### Text resolution (fallback chain)
-
+### Text Resolution Fallback Chain
 **Title:** `EXTRA_TITLE_BIG` → `EXTRA_CONVERSATION_TITLE` → `EXTRA_TITLE` → `tickerText` → app name
 
 **Text:** `MessagingStyle.messages` (chats) → `EXTRA_BIG_TEXT` → `EXTRA_TEXT_LINES` → `EXTRA_TEXT` → `EXTRA_INFO_TEXT` → `EXTRA_SUMMARY_TEXT` → `tickerText` → title
 
-### Android 14+ (API 34) specifics
-
+### Android 14+ (API 34) Specifics
 | Issue | Solution |
 |-------|----------|
-| `startService()` for NLS doesn't work | System bind only via `BIND_NOTIFICATION_LISTENER_SERVICE` |
+| `startService()` for NLS doesn't work | System bind via `BIND_NOTIFICATION_LISTENER_SERVICE` |
 | Service killed by OEM | `ForegroundKeepAliveService` with `START_STICKY` |
 | `foregroundServiceType` required | `specialUse` in manifest |
-| Duplicate notifications | Dedup via `LinkedHashMap`, 3s window, max 50 entries |
-| NLS disabled on reboot | `requestRebind()` on service start + retry after 5s |
+| Duplicate notifications | `LinkedHashMap` dedup, 3s window, max 50 entries |
+| NLS disabled on reboot | `requestRebind()` on start + retry after 5s |
 
----
+### Client-Side Exclusion Rules
+Notifications can be filtered on the Android side before sending:
+- Field: `title`, `text`, `app_name`, or `app_package`
+- Pattern: case-insensitive substring match
+- Any matching rule → notification is dropped (never sent to server)
 
-## 🔧 Building the Android app
-
+### Building the Android App
 ```bash
-# Debug
-./gradlew assembleDebug
-
-# Release (with signing)
-export KEYSTORE_PASSWORD='password'
-./gradlew assembleRelease
-
-# Install
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-
-# Tests + coverage
-./gradlew test
-./gradlew jacocoTestReport
+./gradlew assembleDebug                    # Debug APK
+./gradlew assembleRelease                  # Release APK (requires signing)
+./gradlew test                             # Unit tests (22 tests)
+./gradlew jacocoTestReport                 # Coverage report
 ```
 
 ### CI/CD (GitHub Actions)
-
-- **Push to `main`**, **PR to `main`**, **tag `v*`** trigger the build
+- Triggers: push/PR to `main`, tag `v*`
 - Pipeline: lint → test → JaCoCo → assembleDebug → assembleRelease
-- Tagged releases auto-create GitHub Release with changelog + APK
-
-**GitHub Secrets:** `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`
+- Tagged releases: auto-generated GitHub Release with signed APK + changelog
+- **Secrets:** `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`
 
 ---
 
-## ⚠️ Pitfalls
+## ⚠️ Common Pitfalls
 
-- **Auth token:** if you change it in `.env`, restart the service (`systemctl restart`)
-- **Tailscale funnel** requires `sudo` and only works while tailscale is running
-- **Database doesn't auto-clean** — run `VACUUM` or delete old records manually
-- **Port 8790:** make sure it's not occupied by another service
-- **Server bind:** `127.0.0.1` only; expose externally only through tailscale funnel
-- **Python dependencies:** after Python/uv update, reinstall `aiosqlite` via `uv pip install`
+- **Auth token mismatch:** if you change it in `.env`, restart the server
+- **Tailscale funnel** requires `sudo` and a running Tailscale daemon
+- **Database growth:** SQLite doesn't auto-vacuum; periodically run `VACUUM` or archive old records
+- **Port conflicts:** ensure port 8790 is free before starting
+- **Security:** bind to `127.0.0.1` and expose only through Tailscale Funnel or a reverse proxy
+- **Python upgrades:** reinstall dependencies (`pip install aiosqlite`) after Python version changes
