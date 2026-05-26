@@ -14,8 +14,6 @@ MODES:
   • Default (no flag): filter -> eval importance -> generate text summary
   • --json:            filter -> eval importance -> dedup -> group by app_package
                        -> output JSON for LLM summarization
-
-STATE FILE: ~/.hermes/data/notif_webhook_watchdog.json
 """
 
 import argparse
@@ -27,7 +25,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DB_DIR = Path(os.environ.get("NOTIF_WEBHOOK_DB_DIR", str(Path.home() / ".hermes" / "data")))
+DB_DIR = Path(os.environ.get("NOTIF_WEBHOOK_DB_DIR", str(Path.cwd() / "data")))
 DB_PATH = DB_DIR / "notif_webhook.db"
 STATE_FILE = DB_DIR / "notif_webhook_watchdog.json"
 
@@ -57,8 +55,7 @@ DEFAULT_RULES = {
             "joined", "left", "removed",
         ],
         "title": [
-            "Hermes",
-            "Claw",
+            "NotificationBot",
         ],
     },
     "default_importance": "low",

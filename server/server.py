@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 # ── Configuration ──────────────────────────────────────────────────────────────
 PORT = int(os.environ.get("NOTIF_WEBHOOK_PORT", "8790"))
 HOST = os.environ.get("NOTIF_WEBHOOK_BIND", "127.0.0.1")
-DB_DIR = Path(os.environ.get("NOTIF_WEBHOOK_DB_DIR", str(Path.home() / ".hermes" / "data")))
+DB_DIR = Path(os.environ.get("NOTIF_WEBHOOK_DB_DIR", str(Path.cwd() / "data")))
 DB_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DB_DIR / "notif_webhook.db"
 
