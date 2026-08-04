@@ -3,6 +3,7 @@
 
 import json
 import os
+import hmac
 import time
 import sqlite3
 import asyncio
@@ -76,7 +77,7 @@ async def verify_auth(request: Request):
     if not AUTH_TOKEN:
         return
     token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-    if token != AUTH_TOKEN:
+    if not hmac.compare_digest(token, AUTH_TOKEN):
         raise HTTPException(status_code=403, detail="Invalid auth token")
 
 

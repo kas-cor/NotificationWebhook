@@ -121,10 +121,10 @@ def is_important(notification: dict, rules: dict) -> tuple:
         if app.lower() in app_name.lower():
             return (True, f"include-app: '{app}'")
 
-    # 3. Default importance based on app
+    # 3. Medium-priority apps are important by default
     for app in medium_apps:
         if app.lower() in app_name.lower():
-            return (default == "medium" or default == "high", f"default-{default} for app")
+            return (True, f"medium-app: '{app}'")
 
     # 4. Fallback
     return (default == "high", f"default-{default}")
