@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """Notification Webhook Server — receives Android notification JSON, stores in SQLite."""
 
-import json
 import os
 import hmac
 import time
 import sqlite3
-import asyncio
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 
 import aiosqlite
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ConfigDict
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 PORT = int(os.environ.get("NOTIF_WEBHOOK_PORT", "8790"))
@@ -23,9 +22,27 @@ DB_PATH = DB_DIR / "notif_webhook.db"
 
 # Optional auth token — set in .env or service env
 AUTH_TOKEN = os.environ.get("NOTIF_WEBHOOK_AUTH_TOKEN", "")
+RETENTION_DAYS = int(os.environ.get("NOTIF_WEBHOOK_RETENTION_DAYS", "30"))
+MAX_BODY_BYTES = int(os.environ.get("NOTIF_WEBHOOK_MAX_BODY_BYTES", "262144"))
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="NotifWebhook Receiver", version="1.0.0")
+
+
+class NotificationPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    app_package: str = Field(min_length=1, max_length=256)
+    app_name: str = Field(min_length=1, max_length=256)
+    title: str = Field(default="", max_length=4096)
+    text: str = Field(default="", max_length=16384)
+    sub_text: str = Field(default="", max_length=4096)
+    category: str = Field(default="", max_length=128)
+    priority: int = Field(default=0, ge=-2, le=2)
+    notification_id: int = Field(default=0)
+    channel_id: str = Field(default="", max_length=256)
+    timestamp_iso: str = Field(default="", max_length=64)
+    timestamp_ms: int = Field(default=0, ge=0)
 
 
 # ── Database ───────────────────────────────────────────────────────────────────
@@ -75,10 +92,15 @@ async def get_db():
 # ── Auth middleware ────────────────────────────────────────────────────────────
 async def verify_auth(request: Request):
     if not AUTH_TOKEN:
+        if HOST != "127.0.0.1" and HOST != "localhost":
+            raise HTTPException(status_code=503, detail="Server authentication is not configured")
         return
-    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Bearer authentication required")
+    token = authorization.removeprefix("Bearer ").strip()
     if not hmac.compare_digest(token, AUTH_TOKEN):
-        raise HTTPException(status_code=403, detail="Invalid auth token")
+        raise HTTPException(status_code=401, detail="Invalid auth token")
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -89,19 +111,31 @@ async def startup():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "db": str(DB_PATH)}
+    return {"status": "ok"}
 
 
 @app.post("/webhook")
 async def receive_webhook(request: Request):
     await verify_auth(request)
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            content_length_value = int(content_length)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid content length")
+        if content_length_value > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Request body too large")
 
     try:
-        body = await request.json()
+        body = await request.body()
+        if len(body) > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Request body too large")
+        payload = NotificationPayload.model_validate_json(body)
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        raise HTTPException(status_code=400, detail="Invalid notification payload")
 
-    payload = body if isinstance(body, dict) else {}
     now_ms = int(time.time() * 1000)
 
     db = await get_db()
@@ -113,28 +147,32 @@ async def receive_webhook(request: Request):
                 raw_data, received_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                payload.get("app_package", ""),
-                payload.get("app_name", ""),
-                payload.get("title", ""),
-                payload.get("text", ""),
-                payload.get("sub_text", ""),
-                payload.get("category", ""),
-                payload.get("priority", 0),
-                payload.get("notification_id", 0),
-                payload.get("channel_id", ""),
-                payload.get("timestamp_iso", ""),
-                payload.get("timestamp_ms", 0),
-                json.dumps(payload, ensure_ascii=False),
+                payload.app_package,
+                payload.app_name,
+                payload.title,
+                payload.text,
+                payload.sub_text,
+                payload.category,
+                payload.priority,
+                payload.notification_id,
+                payload.channel_id,
+                payload.timestamp_iso,
+                payload.timestamp_ms,
+                payload.model_dump_json(ensure_ascii=False),
                 now_ms,
             ),
         )
         await db.commit()
-    except Exception as e:
+    except Exception:
         await db.close()
-        raise HTTPException(status_code=500, detail=f"DB error: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
 
+    if RETENTION_DAYS > 0:
+        cutoff = now_ms - RETENTION_DAYS * 24 * 60 * 60 * 1000
+        await db.execute("DELETE FROM notifications WHERE received_at < ?", (cutoff,))
+        await db.commit()
     await db.close()
-    return {"ok": True, "id": payload.get("notification_id")}
+    return {"ok": True, "id": payload.notification_id}
 
 
 # ── CLI wrapper for systemd / direct run ──────────────────────────────────────

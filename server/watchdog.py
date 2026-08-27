@@ -17,7 +17,9 @@ MODES:
 """
 
 import argparse
+import copy
 import json
+import fcntl
 import os
 import sys
 import sqlite3
@@ -68,13 +70,13 @@ DEFAULT_RULES = {
 def load_state():
     defaults = {
         "last_processed_id": 0,
-        "importance_rules": DEFAULT_RULES.copy(),
+        "importance_rules": copy.deepcopy(DEFAULT_RULES),
         "version": 2,
     }
     if not STATE_FILE.exists():
         return defaults
     try:
-        data = json.loads(STATE_FILE.read_text())
+        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         result = defaults.copy()
         result.update(data)
         if "importance_rules" in data:
@@ -87,9 +89,18 @@ def load_state():
 
 
 def save_state(state: dict):
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.rename(STATE_FILE)
+
+
+def state_lock():
+    lock_path = STATE_FILE.with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = lock_path.open("w")
+    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    return lock
 
 
 # ── Importance evaluation ────────────────────────────────────────────────────
@@ -105,15 +116,7 @@ def is_important(notification: dict, rules: dict) -> tuple:
     default = rules.get("default_importance", "low")
     medium_apps = rules.get("medium_apps", [])
 
-    # 1. Check skip patterns first
-    for pat in skip.get("patterns", []):
-        if pat.lower() in text:
-            return (False, f"skip-pattern: '{pat}'")
-    for sender in skip.get("title", []):
-        if sender.lower() in title.lower():
-            return (False, f"skip-title: '{sender}'")
-
-    # 2. Check include patterns
+    # Explicitly important rules win over skip rules.
     for pat in include.get("patterns", []):
         if pat.lower() in text:
             return (True, f"include-pattern: '{pat}'")
@@ -121,12 +124,20 @@ def is_important(notification: dict, rules: dict) -> tuple:
         if app.lower() in app_name.lower():
             return (True, f"include-app: '{app}'")
 
+    # 2. Check skip patterns
+    for pat in skip.get("patterns", []):
+        if pat.lower() in text:
+            return (False, f"skip-pattern: '{pat}'")
+    for sender in skip.get("title", []):
+        if sender.lower() in title.lower():
+            return (False, f"skip-title: '{sender}'")
+
     # 3. Medium-priority apps are important by default
     for app in medium_apps:
         if app.lower() in app_name.lower():
             return (True, f"medium-app: '{app}'")
 
-    # 4. Fallback
+    # 5. Fallback
     return (default == "high", f"default-{default}")
 
 
@@ -172,6 +183,7 @@ def run_watchdog_json() -> str | None:
     if not DB_PATH.exists():
         return
 
+    lock = state_lock()
     state = load_state()
     checkpoint = state["last_processed_id"]
     rules = state["importance_rules"]
@@ -187,6 +199,7 @@ def run_watchdog_json() -> str | None:
     new_count = len(rows)
     if new_count == 0:
         conn.close()
+        lock.close()
         return
 
     max_id = max(r["id"] for r in rows)
@@ -204,6 +217,7 @@ def run_watchdog_json() -> str | None:
     state["last_processed_id"] = max_id
     save_state(state)
     conn.close()
+    lock.close()
 
     if not important:
         return
@@ -250,6 +264,7 @@ def run_watchdog():
     if not DB_PATH.exists():
         return
 
+    lock = state_lock()
     state = load_state()
     checkpoint = state["last_processed_id"]
     rules = state["importance_rules"]
@@ -265,6 +280,7 @@ def run_watchdog():
     new_count = len(rows)
     if new_count == 0:
         conn.close()
+        lock.close()
         return
 
     max_id = max(r["id"] for r in rows)
@@ -280,6 +296,7 @@ def run_watchdog():
     state["last_processed_id"] = max_id
     save_state(state)
     conn.close()
+    lock.close()
 
     if not important:
         return
@@ -291,6 +308,7 @@ def run_watchdog():
 
 
 def cmd_learn(args):
+    lock = state_lock()
     state = load_state()
     rules = state["importance_rules"]
     changed = False
@@ -335,6 +353,7 @@ def cmd_learn(args):
         save_state(state)
     else:
         print(" Nothing changed — rule already exists")
+    lock.close()
 
 
 def cmd_rules(args):
@@ -369,17 +388,21 @@ def cmd_rules(args):
 
 
 def cmd_reset_checkpoint(args):
+    lock = state_lock()
     state = load_state()
     state["last_processed_id"] = 0
     save_state(state)
     print("Checkpoint reset. All records will be re-processed on next run.")
+    lock.close()
 
 
 def cmd_set_checkpoint(args):
+    lock = state_lock()
     state = load_state()
     state["last_processed_id"] = args.id
     save_state(state)
     print(f"Checkpoint set to #{args.id}")
+    lock.close()
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
