@@ -14,7 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -41,6 +43,7 @@ class NotificationListenerService : NotificationListenerService() {
 
     // Coroutine scope живёт вместе с сервисом
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val webhookQueue = Channel<WebhookWork>(capacity = 100)
 
     // Дедупликация: храним последние N пар (packageName+title+text) чтобы не слать дубли
     private val recentNotifications: LinkedHashMap<String, Long> = object : LinkedHashMap<String, Long>(32, 0.75f, true) {
@@ -56,12 +59,18 @@ class NotificationListenerService : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         Log.i(tag, "Service onCreate")
+        serviceScope.launch {
+            for (work in webhookQueue) {
+                sendWithRetry(work)
+            }
+        }
         // Запрашиваем переподключение при создании — это помогает системе
         // быстрее забиндить сервис, особенно после перезагрузки / обновления
         requestRebind(ComponentName(this, NotificationListenerService::class.java))
     }
 
     override fun onDestroy() {
+        webhookQueue.close()
         serviceScope.cancel()
         super.onDestroy()
         Log.i(tag, "Service onDestroy — will attempt rebind")
@@ -162,21 +171,11 @@ class NotificationListenerService : NotificationListenerService() {
 
         Log.d(tag, "→ Webhook: $packageName | $title | ${text.take(80)}")
 
-        serviceScope.launch {
-            val (success, httpCode) = sendToWebhook(webhookUrl, payload)
-            Log.d(tag, "Webhook result: $success ($httpCode) for $packageName")
-
-            // Сохраняем в историю
-            val entry = WebhookEntry(
-                timestamp = System.currentTimeMillis(),
-                appPackage = packageName,
-                appName = appName,
-                title = title,
-                text = text,
-                success = success,
-                httpCode = httpCode
-            )
-            prefs.addHistoryEntry(entry)
+        val queued = webhookQueue.trySend(
+            WebhookWork(webhookUrl, payload, packageName, appName, title, text, prefs)
+        )
+        if (queued.isFailure) {
+            Log.w(tag, "Webhook queue is full; notification dropped for $packageName")
         }
     }
 
@@ -302,6 +301,27 @@ class NotificationListenerService : NotificationListenerService() {
      * Выполняется в IO-диспетчере корутины — блокирующий вызов безопасен.
      * Возвращает Pair<успех, HTTP-код>.
      */
+    private suspend fun sendWithRetry(work: WebhookWork) {
+        var result = Pair(false, 0)
+        for (attempt in 0 until MAX_RETRIES) {
+            result = sendToWebhook(work.webhookUrl, work.payload)
+            if (result.first || attempt == MAX_RETRIES - 1) break
+            delay(RETRY_DELAYS_MS[attempt])
+        }
+        Log.d(tag, "Webhook result: ${result.first} (${result.second}) for ${work.packageName}")
+        work.prefs.addHistoryEntry(
+            WebhookEntry(
+                timestamp = System.currentTimeMillis(),
+                appPackage = work.packageName,
+                appName = work.appName,
+                title = work.title,
+                text = work.text,
+                success = result.first,
+                httpCode = result.second
+            )
+        )
+    }
+
     private fun sendToWebhook(webhookUrl: String, jsonPayload: String): Pair<Boolean, Int> {
         return try {
             val conn = URL(webhookUrl).openConnection() as HttpURLConnection
@@ -344,6 +364,18 @@ class NotificationListenerService : NotificationListenerService() {
         const val ACTION_SERVICE_STATUS = "com.notifwebhook.SERVICE_STATUS"
         const val EXTRA_CONNECTED = "connected"
         private const val DEDUPE_WINDOW_MS = 3_000L
+        private const val MAX_RETRIES = 3
+        private val RETRY_DELAYS_MS = longArrayOf(1_000L, 2_000L)
+
+        private data class WebhookWork(
+            val webhookUrl: String,
+            val payload: String,
+            val packageName: String,
+            val appName: String,
+            val title: String,
+            val text: String,
+            val prefs: AppPrefs
+        )
 
         /**
          * Проверяет, должно ли уведомление быть пропущено согласно правилам исключений.

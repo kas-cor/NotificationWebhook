@@ -11,6 +11,11 @@ build/
 
 # Local configuration
 local.properties
+.env
+.env.*
+server/data/
+server/exports/
+server/__pycache__/
 
 # Qwen AI assistant
 .qwen/

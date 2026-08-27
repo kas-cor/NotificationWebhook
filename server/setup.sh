@@ -3,6 +3,7 @@
 # Installs the FastAPI server as a systemd service.
 # ────────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DB_DIR="${NOTIF_WEBHOOK_DB_DIR:-$HOME/notifwebhook_data}"
@@ -14,7 +15,7 @@ mkdir -p "$DB_DIR"
 echo "✓ DB directory: $DB_DIR"
 
 # ── 2. Generate auth token ────────────────────────────────────────────────────
-ENV_FILE="${NOTIF_WEBHOOK_ENV_FILE:-.env}"
+ENV_FILE="${NOTIF_WEBHOOK_ENV_FILE:-$SCRIPT_DIR/.env}"
 
 if [ -z "${NOTIF_WEBHOOK_AUTH_TOKEN:-}" ]; then
     if [ -f "$ENV_FILE" ]; then
@@ -29,7 +30,9 @@ if [ -z "${NOTIF_WEBHOOK_AUTH_TOKEN:-}" ]; then
     fi
     if [ -z "${AUTH_TOKEN:-}" ]; then
         AUTH_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(24))")
-        echo "NOTIF_WEBHOOK_AUTH_TOKEN=$AUTH_TOKEN" >> "$ENV_FILE"
+        touch "$ENV_FILE"
+        chmod 600 "$ENV_FILE"
+        printf 'NOTIF_WEBHOOK_AUTH_TOKEN=%s\n' "$AUTH_TOKEN" >> "$ENV_FILE"
         echo "✓ Generated new auth token and saved to $ENV_FILE"
     fi
 else
@@ -55,7 +58,7 @@ ExecStart=$VENV_PYTHON $SCRIPT_DIR/server.py
 Environment=NOTIF_WEBHOOK_PORT=$PORT
 Environment=NOTIF_WEBHOOK_BIND=127.0.0.1
 Environment=NOTIF_WEBHOOK_DB_DIR=$DB_DIR
-Environment=NOTIF_WEBHOOK_AUTH_TOKEN=$AUTH_TOKEN
+EnvironmentFile=$ENV_FILE
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

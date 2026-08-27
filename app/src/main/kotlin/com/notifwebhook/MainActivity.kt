@@ -629,8 +629,6 @@ class HistoryAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val entry = entries[position]
-        val context = holder.itemView.context
-
         holder.statusDot.setBackgroundResource(
             if (entry.success) R.drawable.circle_green else R.drawable.circle_red
         )

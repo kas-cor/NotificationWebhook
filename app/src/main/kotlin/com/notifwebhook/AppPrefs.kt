@@ -2,6 +2,8 @@ package com.notifwebhook
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -70,6 +72,8 @@ data class ExclusionRule(
  */
 class AppPrefs private constructor(private val sp: SharedPreferences) {
 
+    private val writeLock = Any()
+
     var webhookUrl: String
         get() = sp.getString(KEY_WEBHOOK_URL, "").orEmpty()
         set(v) = sp.edit().putString(KEY_WEBHOOK_URL, v).apply()
@@ -108,7 +112,7 @@ class AppPrefs private constructor(private val sp: SharedPreferences) {
     /**
      * Добавляет запись в историю. Если записей больше 50 — удаляет самую старую.
      */
-    fun addHistoryEntry(entry: WebhookEntry) {
+    fun addHistoryEntry(entry: WebhookEntry) = synchronized(writeLock) {
         val list = getHistory().toMutableList()
         list.add(entry)
         // Оставляем только последние 50
@@ -121,7 +125,7 @@ class AppPrefs private constructor(private val sp: SharedPreferences) {
     /**
      * Очищает всю историю.
      */
-    fun clearHistory() {
+    fun clearHistory() = synchronized(writeLock) {
         sp.edit().remove(KEY_HISTORY).apply()
     }
 
@@ -143,13 +147,13 @@ class AppPrefs private constructor(private val sp: SharedPreferences) {
         }
     }
 
-    fun addExclusionRule(rule: ExclusionRule) {
+    fun addExclusionRule(rule: ExclusionRule) = synchronized(writeLock) {
         val list = getExclusionRules().toMutableList()
         list.add(rule)
         saveExclusionRules(list)
     }
 
-    fun removeExclusionRule(ruleId: String) {
+    fun removeExclusionRule(ruleId: String) = synchronized(writeLock) {
         val list = getExclusionRules().toMutableList()
         list.removeAll { it.id == ruleId }
         saveExclusionRules(list)
@@ -178,8 +182,21 @@ class AppPrefs private constructor(private val sp: SharedPreferences) {
         fun get(context: Context): AppPrefs =
             instance ?: synchronized(this) {
                 instance ?: AppPrefs(
-                    context.applicationContext
-                        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    runCatching {
+                        val masterKey = MasterKey.Builder(context.applicationContext)
+                            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                            .build()
+                        EncryptedSharedPreferences.create(
+                            context.applicationContext,
+                            PREFS_NAME,
+                            masterKey,
+                            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                        )
+                    }.getOrElse {
+                        context.applicationContext
+                            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    }
                 ).also { instance = it }
             }
     }
