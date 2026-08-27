@@ -1,0 +1,533 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ===== Настройки =====
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APK_PATH="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+APK_PATH_RELEASE="$PROJECT_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
+GRADLE="$PROJECT_DIR/gradlew"
+ADB="adb"
+PACKAGE="com.notifwebhook"
+SERVER_DIR="$PROJECT_DIR/server"
+
+# ===== Цвета =====
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
+ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; }
+
+# ===== Проверка зависимостей =====
+check_deps() {
+    info "Проверка зависимостей..."
+
+    if [ ! -f "$GRADLE" ]; then
+        error "gradlew не найден: $GRADLE"
+        exit 1
+    fi
+
+    if ! command -v "$ADB" &>/dev/null; then
+        error "adb не найден. Установите Android SDK platform-tools."
+        exit 1
+    fi
+
+    ok "Все базовые зависимости на месте."
+}
+
+check_curl() {
+    if ! command -v curl &>/dev/null; then
+        error "curl не найден. Установите curl."
+        exit 1
+    fi
+}
+
+check_sqlite3() {
+    if ! command -v sqlite3 &>/dev/null; then
+        error "sqlite3 не найден. Установите sqlite3."
+        exit 1
+    fi
+}
+
+check_python3() {
+    if ! command -v python3 &>/dev/null; then
+        error "python3 не найден."
+        exit 1
+    fi
+}
+
+# ===== Сборка debug =====
+build() {
+    info "Сборка debug APK..."
+    cd "$PROJECT_DIR"
+    chmod +x "$GRADLE"
+    "$GRADLE" assembleDebug --no-daemon 2>&1
+    ok "Сборка завершена."
+}
+
+# ===== Сборка release =====
+build_release() {
+    info "Сборка release APK..."
+
+    local keystore="$PROJECT_DIR/notwebhook-release.jks"
+    local sign_with_debug=false
+
+    if [ -f "$keystore" ] && [ -n "${KEYSTORE_PASSWORD:-}" ]; then
+        info "Подпись продакшн-ключом: $keystore"
+    elif [ -f "$keystore" ] && [ -z "${KEYSTORE_PASSWORD:-}" ]; then
+        warn "KEYSTORE_PASSWORD не задан. Буду подписывать debug-ключом Android SDK."
+        sign_with_debug=true
+    else
+        warn "Keystore не найден. Буду подписывать debug-ключом Android SDK."
+        sign_with_debug=true
+    fi
+
+    cd "$PROJECT_DIR"
+    chmod +x "$GRADLE"
+
+    if $sign_with_debug; then
+        # Временно убираем keystore, чтобы build.gradle пропустил подпись
+        if [ -f "$keystore" ]; then
+            mv "$keystore" "${keystore}.bak"
+            # Гарантируем восстановление keystore при любом исходе
+            trap 'mv "${keystore}.bak" "$keystore"' EXIT
+        fi
+
+        "$GRADLE" assembleRelease --no-daemon 2>&1
+
+        # trap восстановит keystore автоматически
+
+        # Подпись debug-ключом Android SDK
+        local debug_ks="$HOME/.android/debug.keystore"
+        if [ ! -f "$debug_ks" ]; then
+            error "Debug keystore не найден: $debug_ks"
+            return 1
+        fi
+
+        local build_tools
+        build_tools=$(ls -d "$HOME/Android/Sdk/build-tools/"* 2>/dev/null | sort -V | tail -1)
+        if [ -z "$build_tools" ]; then
+            error "build-tools не найдены в Android SDK."
+            return 1
+        fi
+
+        local unsigned="$APK_PATH_RELEASE"
+        local aligned="${unsigned%.*}-aligned.apk"
+        if [ ! -f "$unsigned" ]; then
+            error "Unsigned release APK не найден: $unsigned"
+            return 1
+        fi
+
+        "$build_tools/zipalign" -v -p 4 "$unsigned" "$aligned" > /dev/null 2>&1
+        "$build_tools/apksigner" sign \
+            --ks "$debug_ks" \
+            --ks-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --key-pass pass:android \
+            "$aligned" 2>&1
+
+        ok "Release APK подписан debug-ключом: $aligned"
+    else
+        # Продакшн-подпись — пароль уже в переменной окружения
+        "$GRADLE" assembleRelease --no-daemon 2>&1
+        ok "Release APK подписан продакшн-ключом: $APK_PATH_RELEASE"
+    fi
+}
+
+# ===== Проверка APK =====
+check_apk() {
+    local apk="${1:-$APK_PATH}"
+    if [ ! -f "$apk" ]; then
+        error "APK не найден: $apk"
+        exit 1
+    fi
+    local size
+    size=$(du -h "$apk" | cut -f1)
+    ok "APK найден: $apk ($size)"
+}
+
+# ===== Проверка устройств =====
+check_device() {
+    info "Поиск подключённых устройств..."
+    local devices
+    devices=$("$ADB" devices 2>/dev/null | grep -v "^List" | grep -v "^$" || true)
+
+    if [ -z "$devices" ]; then
+        error "Нет подключённых устройств."
+        echo ""
+        echo "  Подключите устройство по USB и включите отладку по USB,"
+        echo "  или запустите эмулятор."
+        echo ""
+        echo "  Для подключения по Wi-Fi:"
+        echo "    adb tcpip 5555"
+        echo "    adb connect <IP_устройства>:5555"
+        exit 1
+    fi
+
+    local count
+    count=$(echo "$devices" | wc -l)
+    ok "Найдено устройств: $count"
+    echo "$devices" | while read -r line; do
+        echo "  → $line"
+    done
+}
+
+# ===== Установка APK =====
+install_apk() {
+    local apk="${1:-$APK_PATH}"
+    info "Установка APK на устройство..."
+    "$ADB" install -r "$apk" 2>&1
+    ok "APK установлен."
+}
+
+# ===== Запуск приложения =====
+launch_app() {
+    info "Запуск приложения..."
+    "$ADB" shell am start -n "$PACKAGE/.MainActivity" 2>&1
+    ok "Приложение запущено."
+}
+
+# ===== Отправка тестового POST =====
+send_test() {
+    info "Отправка тестового POST на webhook..."
+
+    if [ $# -lt 1 ]; then
+        error "Укажите URL webhook'а: $0 --test https://example.com/webhook"
+        exit 1
+    fi
+
+    check_curl
+
+    local url="$1"
+    local token="${2:-}"
+    if [[ "$url" != https://* && "$url" != http://127.0.0.1* && "$url" != http://localhost* ]]; then
+        error "Для удалённого webhook требуется HTTPS"
+        exit 1
+    fi
+
+
+    local ts_iso
+    ts_iso=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
+    local ts_ms
+    ts_ms=$(date +%s%3N)
+    local ts_now
+    ts_now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Формируем payload через printf, чтобы избежать проблем с heredoc и подстановками
+    local payload
+    payload=$(printf '{
+  "app_package": "com.notifwebhook.test",
+  "app_name": "Тестовое приложение",
+  "title": "🔔 Тестовое уведомление",
+  "text": "Это тестовый POST из build-скрипта. Время: %s",
+  "category": "test",
+  "priority": 0,
+  "notification_id": 42,
+  "channel_id": "test_channel",
+  "timestamp_iso": "%s",
+  "timestamp_ms": %s
+}' "$ts_now" "$ts_iso" "$ts_ms")
+
+    local http_code
+    if [ -n "$token" ]; then
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "$url" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $token" \
+            -d "$payload")
+    else
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "$url" \
+            -H "Content-Type: application/json" \
+            -d "$payload")
+    fi
+
+    if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ] || [ "$http_code" -eq 204 ]; then
+        ok "Тестовый POST отправлен. HTTP $http_code"
+    else
+        warn "Тестовый POST ответил HTTP $http_code"
+    fi
+}
+
+# ===== Запуск Python сервера =====
+start_server() {
+    if [ ! -f "$SERVER_DIR/server.py" ]; then
+        error "Сервер не найден: $SERVER_DIR/server.py"
+        exit 1
+    fi
+
+    check_python3
+
+    info "Запуск Python webhook-сервера..."
+
+    cd "$SERVER_DIR"
+
+    # Активируем venv, если есть
+    if [ -d "venv" ]; then
+        source venv/bin/activate
+        info "venv активирован"
+    fi
+
+    # Проверяем, что порт свободен
+    local port="${NOTIF_WEBHOOK_PORT:-8790}"
+    if ss -tlnp 2>/dev/null | grep -q ":$port " || lsof -i :"$port" 2>/dev/null | grep -q LISTEN; then
+        warn "Порт $port уже занят. Сервер уже запущен?"
+        info "Webhook endpoint: http://127.0.0.1:$port/webhook"
+        return
+    fi
+
+    python3 server.py &
+    local pid=$!
+    echo "$pid" > /tmp/notifwebhook-server.pid
+
+    sleep 2
+
+    if kill -0 "$pid" 2>/dev/null; then
+        ok "Сервер запущен (PID $pid)"
+        info "Webhook endpoint: http://127.0.0.1:$port/webhook"
+        info "Health:           http://127.0.0.1:$port/health"
+        info "Остановить:       kill $pid"
+    else
+        error "Не удалось запустить сервер"
+        exit 1
+    fi
+}
+
+# ===== Просмотр логов (logcat) =====
+show_logs() {
+    info "Логи NotifWebhook (logcat). Для выхода: Ctrl+C"
+    echo ""
+    "$ADB" logcat -v time \
+        | grep -E "(NLS_Webhook|KeepAliveService|BootReceiver|MainActivity|AndroidRuntime|$PACKAGE)" \
+        --line-buffered
+}
+
+# ===== Вывод истории webhook (SQLite) =====
+db_stats() {
+    local db="${NOTIF_WEBHOOK_DB_DIR:-$SERVER_DIR/data}/notif_webhook.db"
+
+    if [ ! -f "$db" ]; then
+        error "База данных не найдена: $db"
+        info "Запустите сервер (--server) для создания БД."
+        exit 1
+    fi
+
+    check_sqlite3
+
+    echo ""
+    info "Статистика базы данных: $db"
+    echo ""
+
+    sqlite3 "$db" -header -column "
+        SELECT
+            app_name,
+            COUNT(*)        AS total,
+            MAX(received_at) AS last_seen
+        FROM notifications
+        GROUP BY app_name
+        ORDER BY total DESC
+        LIMIT 20;
+    "
+
+    local total
+    total=$(sqlite3 "$db" "SELECT COUNT(*) FROM notifications;")
+    local latest
+    latest=$(sqlite3 "$db" "SELECT datetime(received_at/1000, 'unixepoch') FROM notifications ORDER BY id DESC LIMIT 1;")
+
+    echo ""
+    info "Всего записей: $total"
+    info "Последняя:     $latest"
+}
+
+# ===== Справка =====
+usage() {
+    echo ""
+    echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║     NotifWebhook — Build Tool        ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Использование: $0 [флаги]"
+    echo ""
+    echo "Флаги:"
+    echo "  --run               Собрать debug APK, установить и запустить"
+    echo "  --release           Собрать release APK (с подписью)"
+    echo "  --install [apk]     Установить APK (по умолч. debug)"
+    echo "  --test <url> [токен] Отправить тестовый POST на webhook"
+    echo "  --server            Запустить локальный Python webhook-сервер"
+    echo "  --logs              Показать logcat, отфильтрованный по приложению"
+    echo "  --db                Статистика из БД сервера"
+    echo ""
+    echo "Без флагов — только сборка debug APK."
+    echo ""
+}
+
+# ===== Главный процесс =====
+main() {
+    local do_run=false
+    local do_release=false
+    local do_install=""
+    local do_test=""
+    local do_test_token=""
+    local do_server=false
+    local do_logs=false
+    local do_db=false
+
+    if [ $# -eq 0 ]; then
+        build
+        exit 0
+    fi
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --run)
+                do_run=true
+                shift
+                ;;
+            --release)
+                do_release=true
+                shift
+                ;;
+            --install)
+                shift
+                if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
+                    do_install="$1"
+                    shift
+                else
+                    do_install="$APK_PATH"
+                fi
+                ;;
+            --test)
+                shift
+                if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
+                    do_test="$1"
+                    shift
+                else
+                    error "--test требует URL"
+                    exit 1
+                fi
+                if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
+                    do_test_token="$1"
+                    shift
+                fi
+                ;;
+            --server)
+                do_server=true
+                shift
+                ;;
+            --logs)
+                do_logs=true
+                shift
+                ;;
+            --db)
+                do_db=true
+                shift
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                error "Неизвестный флаг: $1"
+                usage
+                exit 1
+                ;;
+        esac
+    done
+
+    # --run: build + install + launch
+    if $do_run; then
+        echo ""
+        echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}║    NotifWebhook — Build & Run        ║${NC}"
+        echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+        echo ""
+        check_deps
+        echo ""
+        build
+        echo ""
+        check_apk
+        echo ""
+        check_device
+        echo ""
+        install_apk
+        echo ""
+        launch_app
+        echo ""
+        ok "Готово! 🎉"
+    fi
+
+    # --release: build signed release APK
+    if $do_release; then
+        echo ""
+        echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}║  NotifWebhook — Release Build        ║${NC}"
+        echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+        echo ""
+        check_deps
+        echo ""
+        build_release
+        echo ""
+        ok "Готово! 🎉"
+    fi
+
+    # --install: install APK
+    if [ -n "$do_install" ]; then
+        echo ""
+        echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}║  NotifWebhook — Install APK          ║${NC}"
+        echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+        echo ""
+        check_apk "$do_install"
+        echo ""
+        check_device
+        echo ""
+        install_apk "$do_install"
+        echo ""
+        ok "Готово! 🎉"
+    fi
+
+    # --test: send test POST
+    if [ -n "$do_test" ]; then
+        echo ""
+        echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}║  NotifWebhook — Test POST             ║${NC}"
+        echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+        echo ""
+        send_test "$do_test" "$do_test_token"
+        echo ""
+    fi
+
+    # --server: start Python server
+    if $do_server; then
+        echo ""
+        echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}║  NotifWebhook — Start Server         ║${NC}"
+        echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+        echo ""
+        start_server
+        echo ""
+        ok "Готово! 🎉"
+    fi
+
+    # --logs: show logcat
+    if $do_logs; then
+        show_logs
+    fi
+
+    # --db: database stats
+    if $do_db; then
+        echo ""
+        echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}║  NotifWebhook — Database Stats       ║${NC}"
+        echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+        echo ""
+        db_stats
+        echo ""
+    fi
+}
+
+main "$@"
