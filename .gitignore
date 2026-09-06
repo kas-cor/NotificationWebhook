@@ -16,6 +16,10 @@ local.properties
 server/data/
 server/exports/
 server/__pycache__/
+server/tests/__pycache__/
+
+# Python virtualenv
+.venv/
 
 # Qwen AI assistant
 .qwen/

@@ -365,6 +365,45 @@ class NotificationListenerServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // Classification (parseClassificationId / isDismissAction)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `parseClassificationId returns id from valid response`() {
+        val result = NotificationListenerService.parseClassificationId(
+            "{\"ok\":true,\"classification_id\":\"abc-123\",\"status\":\"pending\"}"
+        )
+        assertEquals("abc-123", result)
+    }
+
+    @Test
+    fun `parseClassificationId returns null on blank body`() {
+        assertTrue(NotificationListenerService.parseClassificationId(null).isNullOrBlank())
+        assertTrue(NotificationListenerService.parseClassificationId("").isNullOrBlank())
+    }
+
+    @Test
+    fun `parseClassificationId returns null on malformed json`() {
+        assertTrue(NotificationListenerService.parseClassificationId("not json{{").isNullOrBlank())
+    }
+
+    @Test
+    fun `parseClassificationId returns null when field missing`() {
+        assertTrue(
+            NotificationListenerService.parseClassificationId("{\"ok\":true}").isNullOrBlank()
+        )
+    }
+
+    @Test
+    fun `isDismissAction true only for dismiss`() {
+        assertTrue(NotificationListenerService.isDismissAction("dismiss"))
+        assertFalse(NotificationListenerService.isDismissAction("keep"))
+        assertFalse(NotificationListenerService.isDismissAction("pending"))
+        assertFalse(NotificationListenerService.isDismissAction(null))
+        assertFalse(NotificationListenerService.isDismissAction(""))
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

@@ -22,6 +22,27 @@ An Android app that intercepts notifications from other apps via `NotificationLi
 - 🌗 **Material 3 Design** — light and dark theme (system-aware)
 - ✅ **Test POST** — built-in button to verify webhook connectivity
 - 🔐 **Bearer token** — optional `Authorization: Bearer <token>` header
+- 🧹 **Auto-swipe promos** — if the server classifies a notification as promo/deal, the app swipes it away (clean notification shade)
+
+### Auto-swipe promos (agent classification)
+
+Flow:
+
+1. The app POSTs the notification to `/webhook`.
+2. The server stores it, creates a classification record and returns a `classification_id`.
+3. The agent (LLM via the webhook prompt) decides: promo/deal → runs `promo_store.py` and marks the `classification_id` as `dismiss`.
+4. After a few seconds the app polls `GET /classification/{id}`.
+5. On `dismiss` the app swipes the notification (`cancelNotification`). On `keep`/error/timeout the notification stays (fail-open).
+
+Server endpoints:
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/webhook` | Accept a notification, returns `classification_id` |
+| `GET` | `/classification/{id}` | Status: `pending` → `done` + `action` (`keep`/`dismiss`) |
+| `POST` | `/classification/{id}/dismiss` | Mark as promo (called by the agent) |
+
+Safety: a notification is swiped **only** on an explicit `dismiss` verdict. Any classifier failure, timeout or `keep` leaves it visible.
 
 ## JSON Payload
 
