@@ -172,7 +172,7 @@ class NotificationListenerService : NotificationListenerService() {
         Log.d(tag, "→ Webhook: $packageName | $title | ${text.take(80)}")
 
         val queued = webhookQueue.trySend(
-            WebhookWork(webhookUrl, payload, packageName, appName, title, text, prefs)
+            WebhookWork(webhookUrl, payload, packageName, appName, title, text, prefs, sbn.key)
         )
         if (queued.isFailure) {
             Log.w(tag, "Webhook queue is full; notification dropped for $packageName")
@@ -302,13 +302,13 @@ class NotificationListenerService : NotificationListenerService() {
      * Возвращает Pair<успех, HTTP-код>.
      */
     private suspend fun sendWithRetry(work: WebhookWork) {
-        var result = Pair(false, 0)
+        var result = WebhookSend(success = false, httpCode = 0, responseBody = null)
         for (attempt in 0 until MAX_RETRIES) {
             result = sendToWebhook(work.webhookUrl, work.payload)
-            if (result.first || attempt == MAX_RETRIES - 1) break
+            if (result.success || attempt == MAX_RETRIES - 1) break
             delay(RETRY_DELAYS_MS[attempt])
         }
-        Log.d(tag, "Webhook result: ${result.first} (${result.second}) for ${work.packageName}")
+        Log.d(tag, "Webhook result: ${result.success} (${result.httpCode}) for ${work.packageName}")
         work.prefs.addHistoryEntry(
             WebhookEntry(
                 timestamp = System.currentTimeMillis(),
@@ -316,13 +316,82 @@ class NotificationListenerService : NotificationListenerService() {
                 appName = work.appName,
                 title = work.title,
                 text = work.text,
-                success = result.first,
-                httpCode = result.second
+                success = result.success,
+                httpCode = result.httpCode
             )
         )
+
+        // Classification pipeline: after a successful POST, poll the server for
+        // the agent verdict. If it says "dismiss", swipe the notification away.
+        if (result.success) {
+            val classificationId = parseClassificationId(result.responseBody)
+            if (!classificationId.isNullOrBlank()) {
+                Log.d(tag, "Classification pending: $classificationId (key=${work.notificationKey})")
+                pollAndMaybeDismiss(work.webhookUrl, classificationId, work.notificationKey)
+            } else {
+                Log.d(tag, "Server did not return classification_id; skip polling")
+            }
+        }
     }
 
-    private fun sendToWebhook(webhookUrl: String, jsonPayload: String): Pair<Boolean, Int> {
+    /**
+     * Poll the classification status until it resolves or the client gives up.
+     * On "dismiss" the notification is swiped via cancelNotification(key).
+     * Fail-open: any error/timeout leaves the notification visible.
+     */
+    private suspend fun pollAndMaybeDismiss(webhookUrl: String, classificationId: String, notificationKey: String) {
+        var attempt = 0
+        while (attempt < CLASSIFICATION_MAX_POLLS) {
+            delay(CLASSIFICATION_POLL_DELAY_MS)
+            attempt++
+            val status = fetchClassificationStatus(webhookUrl, classificationId) ?: return
+            when (status) {
+                "dismiss" -> {
+                    Log.i(tag, "Agent verdict: dismiss → swiping $notificationKey")
+                    cancelNotification(notificationKey)
+                    return
+                }
+                "keep" -> {
+                    Log.d(tag, "Agent verdict: keep — notification stays")
+                    return
+                }
+                else -> Log.d(tag, "Classification still pending (${status ?: "unknown"}), attempt $attempt")
+            }
+        }
+        Log.d(tag, "Classification polling exhausted; fail-open — notification stays")
+    }
+
+    /** GET /classification/{id}, returns "keep"/"dismiss"/"pending" or null on error. */
+    private fun fetchClassificationStatus(webhookUrl: String, classificationId: String): String? {
+        return try {
+            val base = webhookUrl.removeSuffix("/webhook").substringBeforeLast('/')
+            val url = "$base/classification/$classificationId"
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("User-Agent", "NotifWebhook-Android/1.0")
+            val token = AppPrefs.get(this).bearerToken
+            if (token.isNotBlank()) {
+                conn.setRequestProperty("Authorization", "Bearer $token")
+            }
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
+            val code = conn.responseCode
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            conn.disconnect()
+            if (code !in 200..299) {
+                Log.w(tag, "Classification GET HTTP $code")
+                return null
+            }
+            val obj = JSONObject(body)
+            obj.optString("action", null) ?: obj.optString("status")
+        } catch (e: Exception) {
+            Log.e(tag, "fetchClassificationStatus error: ${e.message}")
+            null
+        }
+    }
+
+    private fun sendToWebhook(webhookUrl: String, jsonPayload: String): WebhookSend {
         return try {
             val conn = URL(webhookUrl).openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
@@ -344,11 +413,18 @@ class NotificationListenerService : NotificationListenerService() {
             }
 
             val code = conn.responseCode
+            // Read the response body — it carries classification_id.
+            val body = try {
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                stream?.bufferedReader()?.use { it.readText() }
+            } catch (_: Exception) {
+                null
+            }
             conn.disconnect()
-            Pair(code in 200..299, code)
+            WebhookSend(code in 200..299, code, body)
         } catch (e: Exception) {
             Log.e(tag, "sendToWebhook error: ${e.message}")
-            Pair(false, 0)
+            WebhookSend(success = false, httpCode = 0, responseBody = null)
         }
     }
 
@@ -367,6 +443,33 @@ class NotificationListenerService : NotificationListenerService() {
         private const val MAX_RETRIES = 3
         private val RETRY_DELAYS_MS = longArrayOf(1_000L, 2_000L)
 
+        // Classification polling: how long to keep asking the server for a verdict.
+        private const val CLASSIFICATION_MAX_POLLS = 10
+        private const val CLASSIFICATION_POLL_DELAY_MS = 3_000L
+
+        /** Result of the POST send, including the response body for parsing. */
+        private data class WebhookSend(
+            val success: Boolean,
+            val httpCode: Int,
+            val responseBody: String?
+        )
+
+        /** Parse classification_id out of the POST response body, or null. */
+        internal fun parseClassificationId(responseBody: String?): String? {
+            if (responseBody.isNullOrBlank()) return null
+            return try {
+                JSONObject(responseBody).optString("classification_id", null)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        /**
+         * Check if a classification status payload means "dismiss".
+         * Returns true only when the verdict is explicitly dismiss.
+         */
+        fun isDismissAction(action: String?): Boolean = action == "dismiss"
+
         private data class WebhookWork(
             val webhookUrl: String,
             val payload: String,
@@ -374,7 +477,8 @@ class NotificationListenerService : NotificationListenerService() {
             val appName: String,
             val title: String,
             val text: String,
-            val prefs: AppPrefs
+            val prefs: AppPrefs,
+            val notificationKey: String
         )
 
         /**

@@ -4,6 +4,7 @@
 import os
 import hmac
 import time
+import uuid
 import sqlite3
 import json
 from pathlib import Path
@@ -24,6 +25,11 @@ DB_PATH = DB_DIR / "notif_webhook.db"
 AUTH_TOKEN = os.environ.get("NOTIF_WEBHOOK_AUTH_TOKEN", "")
 RETENTION_DAYS = int(os.environ.get("NOTIF_WEBHOOK_RETENTION_DAYS", "30"))
 MAX_BODY_BYTES = int(os.environ.get("NOTIF_WEBHOOK_MAX_BODY_BYTES", "262144"))
+
+# Classification: how long a notification may wait for an agent verdict
+# before the client treats it as "keep" (fail-open). The agent marks dismiss
+# via POST /classification/{id}/dismiss.
+CLASSIFICATION_TTL_MS = int(os.environ.get("NOTIF_WEBHOOK_CLASSIFICATION_TTL_MS", "60000"))
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="NotifWebhook Receiver", version="1.0.0")
@@ -79,6 +85,28 @@ def init_db_sync():
         CREATE INDEX IF NOT EXISTS idx_notifs_app_name
         ON notifications(app_name)
     """)
+    # Classification table: links a received notification to the agent verdict.
+    # status: pending | done | error
+    # action: keep | dismiss (NULL until decided) — dismiss = swipe on device
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS classifications (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            classification_id TEXT    NOT NULL UNIQUE,
+            notification_row  INTEGER NOT NULL,
+            app_package       TEXT    NOT NULL,
+            app_name          TEXT    NOT NULL DEFAULT '',
+            title             TEXT    NOT NULL DEFAULT '',
+            text              TEXT    NOT NULL DEFAULT '',
+            status            TEXT    NOT NULL DEFAULT 'pending',
+            action            TEXT,
+            created_at        INTEGER NOT NULL,
+            decided_at        INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_class_status
+        ON classifications(status)
+    """)
     conn.commit()
     conn.close()
 
@@ -87,6 +115,27 @@ async def get_db():
     db = await aiosqlite.connect(str(DB_PATH))
     db.row_factory = aiosqlite.Row
     return db
+
+
+async def create_classification(db, notification_row: int, payload) -> str:
+    """Insert a pending classification, return its UUID."""
+    cid = str(uuid.uuid4())
+    await db.execute(
+        """INSERT INTO classifications
+           (classification_id, notification_row, app_package, app_name, title, text,
+            status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
+        (
+            cid,
+            notification_row,
+            payload.get("app_package", ""),
+            payload.get("app_name", ""),
+            payload.get("title", ""),
+            payload.get("text", ""),
+            int(time.time() * 1000),
+        ),
+    )
+    return cid
 
 
 # ── Auth middleware ────────────────────────────────────────────────────────────
@@ -140,7 +189,7 @@ async def receive_webhook(request: Request):
 
     db = await get_db()
     try:
-        await db.execute(
+        cursor = await db.execute(
             """INSERT INTO notifications
                (app_package, app_name, title, text, sub_text, category,
                 priority, notif_id, channel_id, timestamp_iso, timestamp_ms,
@@ -162,6 +211,10 @@ async def receive_webhook(request: Request):
                 now_ms,
             ),
         )
+        notification_row = cursor.lastrowid
+        classification_id = await create_classification(
+            db, notification_row, payload.model_dump()
+        )
         await db.commit()
     except Exception:
         await db.close()
@@ -172,7 +225,71 @@ async def receive_webhook(request: Request):
         await db.execute("DELETE FROM notifications WHERE received_at < ?", (cutoff,))
         await db.commit()
     await db.close()
-    return {"ok": True, "id": payload.notification_id}
+    return {
+        "ok": True,
+        "id": payload.notification_id,
+        "classification_id": classification_id,
+        "status": "pending",
+    }
+
+
+@app.get("/classification/{classification_id}")
+async def get_classification(classification_id: str, request: Request):
+    """Return the current classification status for a notification.
+
+    Client polls this after POST /webhook. Fail-open: once the TTL passes
+    without a dismiss verdict, the notification is treated as "keep".
+    """
+    await verify_auth(request)
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT * FROM classifications WHERE classification_id = ?",
+            (classification_id,),
+        )).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Unknown classification")
+        now_ms = int(time.time() * 1000)
+        status = row["status"]
+        action = row["action"]
+        if status == "pending" and (now_ms - row["created_at"]) > CLASSIFICATION_TTL_MS:
+            status = "done"
+            action = "keep"  # fail-open: unconfirmed stays
+        return {
+            "classification_id": classification_id,
+            "status": status,
+            "action": action,
+            "ttl_ms": CLASSIFICATION_TTL_MS,
+            "created_at": row["created_at"],
+            "decided_at": row["decided_at"],
+        }
+    finally:
+        await db.close()
+
+
+@app.post("/classification/{classification_id}/dismiss")
+async def dismiss_classification(classification_id: str, request: Request):
+    """Mark a notification as dismiss (swipe). Called by the agent after it
+    classifies the notification as promo/spam via promo_store.py."""
+    await verify_auth(request)
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT id FROM classifications WHERE classification_id = ?",
+            (classification_id,),
+        )).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Unknown classification")
+        await db.execute(
+            """UPDATE classifications
+               SET status = 'done', action = 'dismiss', decided_at = ?
+               WHERE classification_id = ?""",
+            (int(time.time() * 1000), classification_id),
+        )
+        await db.commit()
+        return {"ok": True, "classification_id": classification_id, "action": "dismiss"}
+    finally:
+        await db.close()
 
 
 # ── CLI wrapper for systemd / direct run ──────────────────────────────────────
