@@ -28,8 +28,9 @@ MAX_BODY_BYTES = int(os.environ.get("NOTIF_WEBHOOK_MAX_BODY_BYTES", "262144"))
 
 # Classification: how long a notification may wait for an agent verdict
 # before the client treats it as "keep" (fail-open). The agent marks dismiss
-# via POST /classification/{id}/dismiss.
-CLASSIFICATION_TTL_MS = int(os.environ.get("NOTIF_WEBHOOK_CLASSIFICATION_TTL_MS", "60000"))
+# via promo_store.py. Set generously (5 min) because the LLM agent can take
+# many seconds (multiple API calls) to classify.
+CLASSIFICATION_TTL_MS = int(os.environ.get("NOTIF_WEBHOOK_CLASSIFICATION_TTL_MS", "300000"))
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="NotifWebhook Receiver", version="1.0.0")
