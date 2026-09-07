@@ -26,6 +26,8 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.CheckBox
+import android.widget.FrameLayout
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
@@ -57,26 +59,27 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: AppPrefs
 
     // Views
-    private lateinit var statusDot: View
-    private lateinit var statusText: TextView
-    private lateinit var permissionBtn: Button
-    private lateinit var batteryBtn: Button
-    private lateinit var webhookInput: EditText
-    private lateinit var bearerTokenInput: EditText
-    private lateinit var saveBtn: Button
-    private lateinit var testBtn: Button
-    private lateinit var forwardingSwitch: SwitchMaterial
-    private lateinit var skipOngoingSwitch: SwitchMaterial
-    private lateinit var appsRecycler: RecyclerView
+    private var statusDot: View? = null
+    private var statusText: TextView? = null
+    private var permissionBtn: Button? = null
+    private var batteryBtn: Button? = null
+    private var webhookInput: EditText? = null
+    private var bearerTokenInput: EditText? = null
+    private var saveBtn: Button? = null
+    private var testBtn: Button? = null
+    private var forwardingSwitch: SwitchMaterial? = null
+    private var skipOngoingSwitch: SwitchMaterial? = null
+    private var classificationSwitch: SwitchMaterial? = null
+    private var appsRecycler: RecyclerView? = null
 
     // Exclusion rules views
-    private lateinit var rulesRecycler: RecyclerView
-    private lateinit var btnAddRule: Button
-    private lateinit var rulesAdapter: ExclusionRulesAdapter
+    private var rulesRecycler: RecyclerView? = null
+    private var btnAddRule: Button? = null
+    private var rulesAdapter: ExclusionRulesAdapter? = null
 
     // History views
-    private lateinit var tvHistorySummary: TextView
-    private lateinit var btnViewHistory: Button
+    private var tvHistorySummary: TextView? = null
+    private var btnViewHistory: Button? = null
 
     // Разрешение на POST_NOTIFICATIONS (API 33+)
     private val requestNotifPermission = registerForActivityResult(
@@ -100,9 +103,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = AppPrefs.get(this)
-        bindViews()
-        restoreUI()
-        setupListeners()
+        setupTabNavigation()
         loadAppsAsync()
         refreshExclusionRules()
         refreshHistorySummary()
@@ -145,40 +146,82 @@ class MainActivity : AppCompatActivity() {
     // UI setup
     // -------------------------------------------------------------------------
 
+    private lateinit var bottomNav: com.google.android.material.bottomnavigation.BottomNavigationView
+    private lateinit var tabContent: android.widget.FrameLayout
+
+    /** Настройка нижней навигации и переключение вкладок. */
+    private fun setupTabNavigation() {
+        bottomNav = findViewById(R.id.bottom_nav)
+        tabContent = findViewById(R.id.tab_content)
+
+        bottomNav.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_export -> showTab(R.layout.tab_export)
+                R.id.nav_history -> showTab(R.layout.tab_history)
+                R.id.nav_apps -> showTab(R.layout.tab_apps)
+                R.id.nav_settings -> showTab(R.layout.tab_settings)
+                else -> showTab(R.layout.tab_export)
+            }
+            true
+        }
+
+        // Показываем первую вкладку по умолчанию
+        bottomNav.selectedItemId = R.id.nav_export
+    }
+
+    /** Загружает layout активной вкладки в контейнер и перепривязывает views. */
+    private fun showTab(layoutRes: Int) {
+        val inflater = LayoutInflater.from(this)
+        tabContent.removeAllViews()
+        inflater.inflate(layoutRes, tabContent, true)
+        bindViews()
+    }
+
     private fun bindViews() {
-        statusDot = findViewById(R.id.status_dot)
-        statusText = findViewById(R.id.status_text)
-        permissionBtn = findViewById(R.id.btn_permission)
-        batteryBtn = findViewById(R.id.btn_battery)
-        webhookInput = findViewById(R.id.et_webhook_url)
-        bearerTokenInput = findViewById(R.id.et_bearer_token)
-        saveBtn = findViewById(R.id.btn_save_webhook)
-        testBtn = findViewById(R.id.btn_test_webhook)
-        forwardingSwitch = findViewById(R.id.switch_forwarding)
-        skipOngoingSwitch = findViewById(R.id.switch_skip_ongoing)
-        appsRecycler = findViewById(R.id.rv_apps)
-        appsRecycler.layoutManager = LinearLayoutManager(this)
+        // Views вкладки «Экспорт/Пересылка»
+        findViewById<View?>(R.id.status_dot)?.let { statusDot = it }
+        findViewById<TextView?>(R.id.status_text)?.let { statusText = it }
+        findViewById<Button?>(R.id.btn_permission)?.let { permissionBtn = it }
+        findViewById<Button?>(R.id.btn_battery)?.let { batteryBtn = it }
+        findViewById<EditText?>(R.id.et_webhook_url)?.let { webhookInput = it }
+        findViewById<EditText?>(R.id.et_bearer_token)?.let { bearerTokenInput = it }
+        findViewById<Button?>(R.id.btn_save_webhook)?.let { saveBtn = it }
+        findViewById<Button?>(R.id.btn_test_webhook)?.let { testBtn = it }
 
-        // Exclusion rules
-        rulesRecycler = findViewById(R.id.rv_exclusion_rules)
-        rulesRecycler.layoutManager = LinearLayoutManager(this)
-        btnAddRule = findViewById(R.id.btn_add_rule)
+        // Views вкладки «Настройки»
+        findViewById<SwitchMaterial?>(R.id.switch_forwarding)?.let { forwardingSwitch = it }
+        findViewById<SwitchMaterial?>(R.id.switch_skip_ongoing)?.let { skipOngoingSwitch = it }
+        findViewById<SwitchMaterial?>(R.id.switch_classification)?.let { classificationSwitch = it }
 
-        // History
-        tvHistorySummary = findViewById(R.id.tv_history_summary)
-        btnViewHistory = findViewById(R.id.btn_view_history)
+        // Views вкладки «Приложения»
+        findViewById<RecyclerView?>(R.id.rv_apps)?.let { appsRecycler = it }
+        appsRecycler?.layoutManager = LinearLayoutManager(this)
+
+        // Views вкладки «История/Правила»
+        findViewById<RecyclerView?>(R.id.rv_exclusion_rules)?.let { rulesRecycler = it }
+        rulesRecycler?.layoutManager = LinearLayoutManager(this)
+        findViewById<Button?>(R.id.btn_add_rule)?.let { btnAddRule = it }
+        findViewById<TextView?>(R.id.tv_history_summary)?.let { tvHistorySummary = it }
+        findViewById<Button?>(R.id.btn_view_history)?.let { btnViewHistory = it }
+
+        setupListeners()
+        restoreUI()
+        loadAppsAsync()
+        refreshExclusionRules()
+        refreshHistorySummary()
     }
 
     private fun restoreUI() {
-        webhookInput.setText(prefs.webhookUrl)
-        bearerTokenInput.setText(prefs.bearerToken)
-        forwardingSwitch.isChecked = prefs.forwardingEnabled
-        skipOngoingSwitch.isChecked = prefs.skipOngoing
+        webhookInput?.setText(prefs.webhookUrl)
+        bearerTokenInput?.setText(prefs.bearerToken)
+        forwardingSwitch?.isChecked = prefs.forwardingEnabled
+        skipOngoingSwitch?.isChecked = prefs.skipOngoing
+        classificationSwitch?.isChecked = prefs.classificationEnabled
     }
 
     private fun setupListeners() {
         // Кнопка «Предоставить доступ к уведомлениям»
-        permissionBtn.setOnClickListener {
+        permissionBtn?.setOnClickListener {
             if (!isNlsEnabled()) {
                 AlertDialog.Builder(this)
                     .setTitle("Доступ к уведомлениям")
@@ -196,29 +239,29 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Кнопка «Исключить из оптимизации батареи»
-        batteryBtn.setOnClickListener {
+        batteryBtn?.setOnClickListener {
             requestBatteryOptimizationExemption()
         }
 
         // Сохранить webhook URL и Bearer token
-        saveBtn.setOnClickListener {
-            val url = webhookInput.text.toString().trim()
+        saveBtn?.setOnClickListener {
+            val url = webhookInput?.text.toString().trim()
             if (!url.startsWith("http://") && !url.startsWith("https://")) {
                 Toast.makeText(this, "URL должен начинаться с http:// или https://", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             prefs.webhookUrl = url
-            prefs.bearerToken = bearerTokenInput.text.toString().trim()
+            prefs.bearerToken = bearerTokenInput?.text.toString().trim()
             Toast.makeText(this, "✓ URL и токен сохранены", Toast.LENGTH_SHORT).show()
         }
 
         // Тест webhook
-        testBtn.setOnClickListener { sendTestRequest() }
+        testBtn?.setOnClickListener { sendTestRequest() }
 
         // Переключатель пересылки
-        forwardingSwitch.setOnCheckedChangeListener { _, checked ->
+        forwardingSwitch?.setOnCheckedChangeListener { _, checked ->
             if (checked && !isNlsEnabled()) {
-                forwardingSwitch.isChecked = false
+                forwardingSwitch?.isChecked = false
                 Toast.makeText(this, "Сначала предоставьте доступ к уведомлениям", Toast.LENGTH_LONG).show()
                 return@setOnCheckedChangeListener
             }
@@ -231,15 +274,20 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Пропускать ongoing
-        skipOngoingSwitch.setOnCheckedChangeListener { _, checked ->
+        skipOngoingSwitch?.setOnCheckedChangeListener { _, checked ->
             prefs.skipOngoing = checked
         }
 
+        // Автосмахивание промо (классификация)
+        classificationSwitch?.setOnCheckedChangeListener { _, checked ->
+            prefs.classificationEnabled = checked
+        }
+
         // Кнопка добавления правила исключения
-        btnAddRule.setOnClickListener { showAddRuleDialog() }
+        btnAddRule?.setOnClickListener { showAddRuleDialog() }
 
         // Кнопка просмотра истории
-        btnViewHistory.setOnClickListener { showHistoryDialog() }
+        btnViewHistory?.setOnClickListener { showHistoryDialog() }
     }
 
     // -------------------------------------------------------------------------
@@ -248,21 +296,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatusUI(connected: Boolean) {
         val active = connected && isNlsEnabled()
-        statusDot.setBackgroundResource(
+        statusDot?.setBackgroundResource(
             if (active) R.drawable.circle_green else R.drawable.circle_red
         )
-        statusText.text = if (active) "Слушатель активен ✓" else "Слушатель неактивен"
+        statusText?.text = if (active) "Слушатель активен ✓" else "Слушатель неактивен"
     }
 
     private fun updatePermissionButton() {
         if (isNlsEnabled()) {
-            permissionBtn.text = "✓ Доступ к уведомлениям есть"
-            permissionBtn.alpha = 0.5f
-            permissionBtn.isEnabled = false
+            permissionBtn?.text = "✓ Доступ к уведомлениям есть"
+            permissionBtn?.alpha = 0.5f
+            permissionBtn?.isEnabled = false
         } else {
-            permissionBtn.text = "⚠ Предоставить доступ к уведомлениям"
-            permissionBtn.alpha = 1f
-            permissionBtn.isEnabled = true
+            permissionBtn?.text = "⚠ Предоставить доступ к уведомлениям"
+            permissionBtn?.alpha = 1f
+            permissionBtn?.isEnabled = true
         }
     }
 
@@ -270,11 +318,11 @@ class MainActivity : AppCompatActivity() {
         val pm = getSystemService(PowerManager::class.java)
         val exempt = pm.isIgnoringBatteryOptimizations(packageName)
         if (exempt) {
-            batteryBtn.text = "✓ Оптимизация батареи отключена"
-            batteryBtn.alpha = 0.5f
+            batteryBtn?.text = "✓ Оптимизация батареи отключена"
+            batteryBtn?.alpha = 0.5f
         } else {
-            batteryBtn.text = "⚠ Отключить оптимизацию батареи"
-            batteryBtn.alpha = 1f
+            batteryBtn?.text = "⚠ Отключить оптимизацию батареи"
+            batteryBtn?.alpha = 1f
         }
     }
 
@@ -308,6 +356,7 @@ class MainActivity : AppCompatActivity() {
     // -------------------------------------------------------------------------
 
     private fun loadAppsAsync() {
+        val recycler = appsRecycler ?: return
         val scope = CoroutineScope(Dispatchers.Main)
         scope.launch {
             val apps = withContext(Dispatchers.IO) {
@@ -317,7 +366,7 @@ class MainActivity : AppCompatActivity() {
                     .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
             }
             val selected = prefs.allowedApps.toMutableSet()
-            appsRecycler.adapter = AppListAdapter(packageManager, apps, selected) { newSet ->
+            recycler.adapter = AppListAdapter(packageManager, apps, selected) { newSet ->
                 prefs.allowedApps = newSet
             }
         }
@@ -328,15 +377,16 @@ class MainActivity : AppCompatActivity() {
     // -------------------------------------------------------------------------
 
     private fun refreshExclusionRules() {
+        val recycler = rulesRecycler ?: return
         val rules = prefs.getExclusionRules()
-        if (!::rulesAdapter.isInitialized) {
+        if (rulesAdapter == null) {
             rulesAdapter = ExclusionRulesAdapter(rules) { ruleId ->
                 prefs.removeExclusionRule(ruleId)
                 refreshExclusionRules()
             }
-            rulesRecycler.adapter = rulesAdapter
+            recycler.adapter = rulesAdapter
         } else {
-            rulesAdapter.updateRules(rules)
+            rulesAdapter?.updateRules(rules)
         }
     }
 
@@ -382,19 +432,20 @@ class MainActivity : AppCompatActivity() {
     // -------------------------------------------------------------------------
 
     private fun refreshHistorySummary() {
+        val summary = tvHistorySummary ?: return
         val history = prefs.getHistory()
         if (history.isEmpty()) {
-            tvHistorySummary.text = "Нет записей"
-            btnViewHistory.isEnabled = false
-            btnViewHistory.alpha = 0.5f
+            summary.text = "Нет записей"
+            btnViewHistory?.isEnabled = false
+            btnViewHistory?.alpha = 0.5f
         } else {
             val successCount = history.count { it.success }
             val lastEntry = history.last()
             val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
             val time = timeFormat.format(Date(lastEntry.timestamp))
-            tvHistorySummary.text = "Всего: ${history.size} | Успешно: $successCount | Последняя: ${lastEntry.appName} в $time"
-            btnViewHistory.isEnabled = true
-            btnViewHistory.alpha = 1f
+            summary.text = "Всего: ${history.size} | Успешно: $successCount | Последняя: ${lastEntry.appName} в $time"
+            btnViewHistory?.isEnabled = true
+            btnViewHistory?.alpha = 1f
         }
     }
 
@@ -436,8 +487,8 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Сначала введите и сохраните webhook URL", Toast.LENGTH_SHORT).show()
             return
         }
-        testBtn.isEnabled = false
-        testBtn.text = "Отправка..."
+        testBtn?.isEnabled = false
+        testBtn?.text = "Отправка..."
 
         val payload = JSONObject().apply {
             put("app_package", "com.notifwebhook.test")
@@ -480,8 +531,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            testBtn.isEnabled = true
-            testBtn.text = "Отправить тест"
+            testBtn?.isEnabled = true
+            testBtn?.text = "Отправить тест"
 
             result.fold(
                 onSuccess = { code ->
@@ -620,6 +671,7 @@ class HistoryAdapter(
         val title: TextView = view.findViewById(R.id.history_title)
         val text: TextView = view.findViewById(R.id.history_text)
         val httpCode: TextView = view.findViewById(R.id.history_http)
+        val classify: TextView = view.findViewById(R.id.history_classify)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, type: Int) =
@@ -642,5 +694,20 @@ class HistoryAdapter(
 
         val httpText = if (entry.httpCode > 0) "HTTP ${entry.httpCode}" else "Ошибка соединения"
         holder.httpCode.text = httpText
+
+        // Статус классификации (второй запрос) — показываем только если фича включена и был результат
+        val classifyStatus = entry.classifyStatus
+        if (classifyStatus != null) {
+            holder.classify.visibility = View.VISIBLE
+            holder.classify.text = when (classifyStatus) {
+                "dismiss" -> "Промо: смахнуто"
+                "keep" -> "Промо: оставлено"
+                "pending" -> "Промо: ожидание"
+                "disabled" -> "Промо: выкл"
+                else -> "Промо: ${classifyStatus}"
+            }
+        } else {
+            holder.classify.visibility = View.GONE
+        }
     }
 }

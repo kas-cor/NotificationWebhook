@@ -88,6 +88,37 @@ class AppPrefsTest {
         assertEquals(original.httpCode, restored.httpCode)
     }
 
+    @Test
+    fun `WebhookEntry classifyStatus roundtrip`() {
+        val original = WebhookEntry(
+            timestamp = 2000L,
+            appPackage = "com.promo.app",
+            appName = "Shop",
+            title = "Sale",
+            text = "-50%",
+            success = true,
+            httpCode = 200,
+            classifyStatus = "dismiss"
+        )
+
+        val restored = WebhookEntry.fromJson(original.toJson())
+        assertEquals("dismiss", restored.classifyStatus)
+    }
+
+    @Test
+    fun `WebhookEntry classifyStatus null when absent`() {
+        val entry = WebhookEntry(
+            timestamp = 1L,
+            appPackage = "com.app",
+            appName = "App",
+            title = "",
+            text = "",
+            success = true,
+            httpCode = 200
+        )
+        assertEquals(null, WebhookEntry.fromJson(entry.toJson()).classifyStatus)
+    }
+
     // -------------------------------------------------------------------------
     // ExclusionRule data class tests
     // -------------------------------------------------------------------------
