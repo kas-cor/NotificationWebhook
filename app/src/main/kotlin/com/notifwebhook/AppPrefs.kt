@@ -18,7 +18,8 @@ data class WebhookEntry(
     val title: String,
     val text: String,
     val success: Boolean,
-    val httpCode: Int
+    val httpCode: Int,
+    val classifyStatus: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("timestamp", timestamp)
@@ -28,6 +29,9 @@ data class WebhookEntry(
         put("text", text)
         put("success", success)
         put("http_code", httpCode)
+        if (classifyStatus != null) {
+            put("classify_status", classifyStatus)
+        }
     }
 
     companion object {
@@ -38,7 +42,8 @@ data class WebhookEntry(
             title = obj.optString("title", ""),
             text = obj.optString("text", ""),
             success = obj.optBoolean("success", false),
-            httpCode = obj.optInt("http_code", 0)
+            httpCode = obj.optInt("http_code", 0),
+            classifyStatus = if (obj.has("classify_status")) obj.optString("classify_status", "").ifEmpty { null } else null
         )
     }
 }
@@ -85,6 +90,14 @@ class AppPrefs internal constructor(private val sp: SharedPreferences) {
     var skipOngoing: Boolean
         get() = sp.getBoolean(KEY_SKIP_ONGOING, true)
         set(v) = sp.edit().putBoolean(KEY_SKIP_ONGOING, v).apply()
+
+    /**
+     * Включает/выключает классификацию промо (второй запрос к серверу и автосмахивание).
+     * По умолчанию включено.
+     */
+    var classificationEnabled: Boolean
+        get() = sp.getBoolean(KEY_CLASSIFICATION_ENABLED, true)
+        set(v) = sp.edit().putBoolean(KEY_CLASSIFICATION_ENABLED, v).apply()
 
     var bearerToken: String
         get() = sp.getString(KEY_BEARER_TOKEN, "").orEmpty()
@@ -173,6 +186,7 @@ class AppPrefs internal constructor(private val sp: SharedPreferences) {
         private const val KEY_BEARER_TOKEN = "bearer_token"
         private const val KEY_FORWARDING_ENABLED = "forwarding_enabled"
         private const val KEY_SKIP_ONGOING = "skip_ongoing"
+        private const val KEY_CLASSIFICATION_ENABLED = "classification_enabled"
         private const val KEY_ALLOWED_APPS = "allowed_apps"
         private const val KEY_HISTORY = "webhook_history"
         private const val KEY_EXCLUSION_RULES = "exclusion_rules"
