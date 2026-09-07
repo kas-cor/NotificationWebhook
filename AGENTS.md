@@ -18,10 +18,10 @@ The user installs the app, grants notification access, enters a webhook URL, and
 | compileSdk / targetSdk / minSdk | 34 (Android 14) |
 | Gradle / Android Gradle Plugin | 8.5 / 8.2.2 |
 | Coroutines | 1.8.1 |
-| Material Components | 1.12.0 |
 | AndroidX Core-KTX | 1.13.1 |
-| AppCompat | 1.7.0 |
-| RecyclerView | 1.3.2 |
+| Jetpack Compose (BOM 2024.04.01) | material3 1.2.x, activity-compose 1.8.2, icons-extended |
+| Compose Compiler | 1.5.8 (Kotlin 1.9.22) |
+| Material Components | 1.12.0 (only for the XML Activity theme) |
 | JaCoCo | 0.8.11 |
 | JUnit | 4.13.2 |
 | Mockito | 5.11.0 (inline mock maker) |
@@ -49,14 +49,26 @@ ForegroundKeepAliveService   ← START_STICKY foreground service (specialUse, AP
 
 BootReceiver  ← BOOT_COMPLETED / MY_PACKAGE_REPLACED → ForegroundKeepAliveService.start()
 AppPrefs      ← Thread-safe SharedPreferences singleton
-MainActivity  ← UI: listener status, webhook URL, toggles, app list
+MainActivity  ← Jetpack Compose (setContent)
+   └─ MainScreen ← Scaffold + NavigationBar: 4 вкладки
+      ├─ HomeTab    — статус NLS, webhook URL, Bearer token, toggles, тест POST
+      ├─ AppsTab    — список приложений (LazyColumn)
+      ├─ RulesTab   — правила исключений + диалог добавления
+      └─ HistoryTab — история отправки (LazyColumn)
 ```
 
 ### Components
 
 | File | Description |
 |---|---|
-| `MainActivity.kt` | Main UI: status, webhook URL input, Bearer token, toggles, installed apps list |
+| `MainActivity.kt` | Thin Activity: `setContent { NotifWebhookTheme { MainScreen(prefs) } }` |
+| `ui/Theme.kt` | Compose-тема (light/dark ColorScheme из `colors.xml`) |
+| `ui/MainScreen.kt` | Scaffold + bottom NavigationBar (4 вкладки: Главная / Приложения / Правила / История) |
+| `ui/HomeTab.kt` | Статус NLS, доступ к уведомлениям, батарея, webhook URL/Bearer, toggles, тест POST |
+| `ui/AppsTab.kt` | Список установленных приложений с иконками и чекбоксами |
+| `ui/RulesTab.kt` | Правила исключений + Compose-диалог добавления (ExposedDropdownMenu) |
+| `ui/HistoryTab.kt` | История webhook-отправок + очистка |
+| `ui/Components.kt` | Общие компоненты: SectionCard, SectionHeader, ListTabCard, toast |
 | `NotificationListenerService.kt` | Core: intercept, dedup, resolveTitle/resolveText, JSON, HTTP POST |
 | `ForegroundKeepAliveService.kt` | Foreground service to keep process alive (specialUse, API 34) |
 | `BootReceiver.kt` | Auto-start after reboot / package update |
@@ -88,20 +100,36 @@ MainActivity  ← UI: listener status, webhook URL, toggles, app list
 
 ---
 
-## Unit Tests
+## Tests
 
-**22 tests** for `NotificationListenerServiceTest`:
+**37 tests** for `NotificationListenerServiceTest`:
 
 | Group | Tests | What's tested |
 |---|---|---|
 | `resolveTitle` | 8 | Title priority: BigTitle → Title → tickerText → "", empty/whitespace values |
 | `resolveText` | 11 | Text priority: BigText → TextLines → Text → SummaryText → tickerText → "" |
-| `isOngoing` | 3 | `FLAG_ONGOING_EVENT`, without flag, flag combinations |
+| `notification` (isOngoing) | 3 | `FLAG_ONGOING_EVENT`, without flag, flag combinations |
+| `shouldSkipByRules` | 10 | Exclusion rules: substring match, case-insensitivity, unknown field |
+| `parseClassificationId` | 4 | NotificationListenerService classification parsing |
+| `isDismissAction` | 1 | Action detection |
+
+**15 tests** for `AppPrefsTest` (`WebhookEntry`/`ExclusionRule` JSON roundtrip, history limit 50, exclusion rules CRUD).
+
+**4 Compose UI tests** (`MainScreenUiTest`) run on the JVM via Robolectric (no emulator):
+
+| Test | What's tested |
+|---|---|
+| `bottomNavigation_switchesBetweenAllTabs` | 4 bottom-nav tabs show their content |
+| `addRuleDialog_showsValidationErrorOnEmptyPattern` | Empty pattern blocks submit + shows error |
+| `addRuleDialog_addsRuleAndPersists` | Rule is added, shown in list, persisted in prefs |
+| `historyTab_showsEntriesAndClears` | History rows rendered, clear button empties list |
+
+UI tests run only for the debug variant (`testDebugUnitTest`): `createComposeRule` needs `ComponentActivity` from `ui-test-manifest`, which is a `debugImplementation`. `testReleaseUnitTest` excludes `MainScreenUiTest` in `app/build.gradle`.
 
 **Run:** `./gradlew test`
 **Coverage:** `./gradlew jacocoTestReport` → report at `app/build/reports/jacoco/jacocoTestReport/html/index.html`
 
-**Mocks:** `Bundle` (final class) is mocked via inline mock maker (`mockito-extensions/org.mockito.plugins.MockMaker`). `Notification` — fields `tickerText`, `flags` are set directly on the mock object.
+**Mocks:** `Bundle` (final class) is mocked via inline mock maker (`mockito-extensions/org.mockito.plugins.MockMaker`). `Notification` — fields `tickerText`, `flags` are set directly on the mock object. Compose UI tests use Robolectric 4.13 (`@GraphicsMode(NATIVE)`, SDK 34) + `ui-test-junit4`.
 
 ---
 
@@ -213,7 +241,7 @@ Notifications can be filtered client-side before sending:
 | `startService()` for NLS doesn't work | System bind via `BIND_NOTIFICATION_LISTENER_SERVICE` only |
 | Service killed by OEM | `ForegroundKeepAliveService` with `START_STICKY` |
 | `foregroundServiceType` required | `specialUse` in manifest |
-| `POST_NOTIFICATIONS` permission | Requested in `onResume` (API 33+) |
+| `POST_NOTIFICATIONS` permission | Requested from HomeTab via `rememberLauncherForActivityResult` |
 | Aggressive battery on Xiaomi/Huawei | Exempt from optimization + manual auto-start |
 | Duplicate notifications | Dedup via `LinkedHashMap`, 3s window, max 50 entries |
 | NLS disabled after reboot | `requestRebind()` on service start + retry after 5s |
@@ -240,9 +268,9 @@ Notifications can be filtered client-side before sending:
 - **SharedPreferences:** Thread-safe singleton via `AppPrefs`
 - **Dedup:** `LinkedHashMap`, 3s window, max 50 entries
 - **Network:** Standard `HttpURLConnection`, synchronous calls in IO dispatcher. If Bearer token is set, adds `Authorization: Bearer <token>` header
-- **UI:** Material Components, custom layout (no Compose), `RecyclerView` for app list
+- **UI:** Jetpack Compose + Material3. Single `MainScreen` with bottom `NavigationBar`, 4 tabs (`MainTab` enum). Lists are `LazyColumn` inside `ListTabCard`. Dialogs are Compose `AlertDialog`. No XML layouts or RecyclerView adapters
 - **Logging:** Tag `NLS_Webhook` for ListenerService, `KeepAliveService` for foreground service, `BootReceiver` for receiver
-- **Testing:** JUnit + Mockito (inline mock maker for final classes), 22 unit tests
+- **Testing:** JUnit + Mockito (inline mock maker), 52 unit tests + 4 Compose UI tests (Robolectric, debug variant only)
 - **CI:** lint → test → JaCoCo → assembleDebug → assembleRelease → artifacts
 - **APK signing:** via secrets `KEYSTORE_BASE64` + `KEYSTORE_PASSWORD`
 

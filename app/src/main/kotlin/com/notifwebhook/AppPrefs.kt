@@ -70,7 +70,7 @@ data class ExclusionRule(
  * Единая точка доступа к SharedPreferences.
  * Потокобезопасно: SharedPreferences.getXxx() безопасен для чтения из любого потока.
  */
-class AppPrefs private constructor(private val sp: SharedPreferences) {
+class AppPrefs internal constructor(private val sp: SharedPreferences) {
 
     private val writeLock = Any()
 
