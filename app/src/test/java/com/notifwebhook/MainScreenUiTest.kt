@@ -6,9 +6,11 @@ import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -142,7 +144,8 @@ class MainScreenUiTest {
                 title = "Сообщение",
                 text = "Привет!",
                 success = true,
-                httpCode = 200
+                httpCode = 200,
+                classifyStatus = "dismiss"
             )
         )
 
@@ -150,11 +153,32 @@ class MainScreenUiTest {
         // В UI записи показываются от новых к старым: сверху Telegram (HTTP 200)
         composeRule.onNodeWithText("Telegram").assertIsDisplayed()
         composeRule.onNodeWithText("HTTP 200").assertIsDisplayed()
+        // Статус классификации показывается, когда он есть
+        composeRule.onNodeWithText("Промо: смахнуто").assertIsDisplayed()
         composeRule.onNodeWithText("FailApp").assertIsDisplayed()
 
         composeRule.onNodeWithText("Очистить историю").performClick()
         composeRule.onNodeWithText("Нет записей").assertIsDisplayed()
         assertTrue(prefs.getHistory().isEmpty())
+    }
+
+    // ---------------------------------------------------------------------
+    // Классификация промо
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun homeSettings_classificationTogglePersists() {
+        // По умолчанию включено
+        assertTrue(prefs.classificationEnabled)
+        composeRule.onNodeWithText("Автосмахивание промо")
+            .performScrollTo()
+            .assertIsDisplayed()
+
+        // На Главной 3 переключателя: пересылка, ongoing, автосмахивание — берём третий
+        composeRule.onAllNodes(isToggleable())[2]
+            .performScrollTo()
+            .performClick()
+        assertTrue(!prefs.classificationEnabled)
     }
 
     // ---------------------------------------------------------------------
