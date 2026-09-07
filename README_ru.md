@@ -93,7 +93,8 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 | Файл | Назначение |
 |---|---|
 | `NotificationListenerService.kt` | Ядро: перехват, дедупликация, формирование JSON, HTTP POST |
-| `MainActivity.kt` | UI: статус, webhook URL, переключатели, список приложений |
+| `MainActivity.kt` | Compose-хост: `MainScreen` с нижней навигацией на 4 вкладки |
+| `ui/MainScreen.kt`, `ui/*Tab.kt` | Compose UI: Главная (статус/webhook/настройки), Приложения, Правила, История |
 | `ForegroundKeepAliveService.kt` | Foreground-сервис для удержания процесса |
 | `BootReceiver.kt` | Автозапуск после перезагрузки / обновления |
 | `AppPrefs.kt` | SharedPreferences singleton (потокобезопасный) |
@@ -124,9 +125,9 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 
 ## Скриншоты дизайна
 
-- **Material 3** — карточки с закруглениями, акцентный синий цвет
+- **Jetpack Compose (Material 3)** — карточки с закруглениями, акцентный синий цвет
 - **Тёмная тема** — автоматически под систему (DayNight)
-- **Секции:** СТАТУС, WEBHOOK URL, НАСТРОЙКИ, ПРИЛОЖЕНИЯ
+- **Нижняя навигация, 4 вкладки:** Главная (статус, webhook URL, настройки) / Приложения / Правила исключений / История
 - **Bearer token** — поле ввода под webhook URL с переключателем видимости пароля
 
 ## Android 14+ особенности
@@ -136,7 +137,7 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 | `startService()` для NLS не работает | Только системный bind через `BIND_NOTIFICATION_LISTENER_SERVICE` |
 | Сервис убивается OEM | `ForegroundKeepAliveService` c `START_STICKY` |
 | `foregroundServiceType` обязателен | `specialUse` + декларация в манифесте |
-| `POST_NOTIFICATIONS` permission | Запрашивается в `onResume` (API 33+) |
+| `POST_NOTIFICATIONS` permission | Запрашивается из вкладки «Главная» через Compose-launcher (API 33+) |
 | Агрессивная батарея Xiaomi | Кнопка исключения из оптимизации + «Автозапуск» вручную |
 | Дубли уведомлений | Дедупликация: `LinkedHashMap` с окном 3 сек, до 50 записей |
 | NLS отключается после перезапуска | `requestRebind()` при старте сервиса + повтор через 5 сек |
@@ -147,23 +148,22 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 |---|---|
 | Kotlin / JVM | 17 |
 | compileSdk / minSdk | 34 |
-| Material Components | 1.12.0 |
+| Jetpack Compose | BOM 2024.04.01 (material3 1.2.x) |
+| Compose Compiler | 1.5.8 (Kotlin 1.9.22) |
 | Coroutines | 1.8.1 |
 | AndroidX Core-KTX | 1.13.1 |
-| AppCompat | 1.7.0 |
-| RecyclerView | 1.3.2 |
 
 ## Тестирование
 
-Проект содержит **22 unit-теста** для `NotificationListenerService` — ядра приложения.
+Проект содержит **56 тестов** в трёх наборах:
 
-| Группа | Тестов | Что проверяют |
-|---|---|---|
-| `resolveTitle` | 8 | Приоритет заголовков: BigTitle → Title → tickerText → "" |
-| `resolveText` | 11 | Приоритет текста: BigText → TextLines → Text → SummaryText → tickerText → "" |
-| `isOngoing` | 3 | Определение `FLAG_ONGOING_EVENT` |
+- **37 unit-тестов** для `NotificationListenerService` (резолвинг заголовков/текста, ongoing, правила исключений, парсинг классификации)
+- **15 unit-тестов** для `AppPrefs` (лимит истории 50, CRUD правил исключений, JSON roundtrip)
+- **4 Compose UI-теста** (`MainScreenUiTest`) — переключение вкладок и валидация диалога добавления правила, запускаются на JVM через Robolectric (эмулятор не нужен)
 
-**Стек:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker для `Bundle`).
+**Стек:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker для `Bundle`) + Robolectric 4.13 + Compose `ui-test-junit4`.
+
+**Примечание:** Compose UI-тесты запускаются только для debug-варианта (`testReleaseUnitTest` исключает их — им нужен debug-only `ui-test-manifest`).
 
 ### Запуск тестов
 

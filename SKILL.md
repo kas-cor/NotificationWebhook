@@ -402,7 +402,7 @@ Notifications can be filtered on the Android side before sending:
 ```bash
 ./gradlew assembleDebug                    # Debug APK
 ./gradlew assembleRelease                  # Release APK (requires signing)
-./gradlew test                             # Unit tests (22 tests)
+./gradlew test                             # 52 unit tests + 4 Compose UI tests (Robolectric, debug variant)
 ./gradlew jacocoTestReport                 # Coverage report
 ```
 

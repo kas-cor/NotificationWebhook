@@ -92,7 +92,8 @@ ForegroundKeepAliveService  ← START_STICKY foreground service
 | File | Purpose |
 |------|---------|
 | `NotificationListenerService.kt` | Core: intercept, dedup, build JSON, HTTP POST |
-| `MainActivity.kt` | UI: status, webhook URL, toggles, app list |
+| `MainActivity.kt` | Compose host: `MainScreen` with 4 bottom-nav tabs |
+| `ui/MainScreen.kt`, `ui/*Tab.kt` | Compose UI: Home (status/webhook/settings), Apps, Exclusion rules, History |
 | `ForegroundKeepAliveService.kt` | Foreground service to keep process alive |
 | `BootReceiver.kt` | Auto-start after reboot / package update |
 | `AppPrefs.kt` | Thread-safe SharedPreferences singleton |
@@ -122,9 +123,9 @@ Xiaomi's security system aggressively blocks background services. Additional ste
 
 ## Design
 
-- **Material 3** — rounded cards, accent blue color
+- **Jetpack Compose (Material 3)** — rounded cards, accent blue color
 - **Dark theme** — automatic (DayNight)
-- **Sections:** STATUS, WEBHOOK URL, SETTINGS, APPS
+- **Bottom navigation with 4 tabs:** Главная (status, webhook URL, settings) / Приложения / Правила исключений / История
 - **Bearer token** — input field with password visibility toggle
 
 ### Webhook Send History
@@ -145,7 +146,7 @@ Notifications can be filtered before sending:
 | `startService()` for NLS doesn't work | System bind via `BIND_NOTIFICATION_LISTENER_SERVICE` only |
 | Service killed by OEM | `ForegroundKeepAliveService` with `START_STICKY` |
 | `foregroundServiceType` required | `specialUse` in manifest |
-| `POST_NOTIFICATIONS` permission | Requested in `onResume` (API 33+) |
+| `POST_NOTIFICATIONS` permission | Requested from Home tab via Compose launcher (API 33+) |
 | Aggressive battery on Xiaomi/Huawei | Exempt from optimization + manual auto-start |
 | Duplicate notifications | Dedup via `LinkedHashMap`, 3s window, max 50 entries |
 | NLS disabled after reboot | `requestRebind()` on service start + retry after 5s |
@@ -156,23 +157,22 @@ Notifications can be filtered before sending:
 |------------|---------|
 | Kotlin / JVM | 17 |
 | compileSdk / minSdk | 34 |
-| Material Components | 1.12.0 |
+| Jetpack Compose | BOM 2024.04.01 (material3 1.2.x) |
+| Compose Compiler | 1.5.8 (Kotlin 1.9.22) |
 | Coroutines | 1.8.1 |
 | AndroidX Core-KTX | 1.13.1 |
-| AppCompat | 1.7.0 |
-| RecyclerView | 1.3.2 |
 
 ## Testing
 
-The project contains **22 unit tests** for `NotificationListenerService`:
+The project contains **56 tests** in 3 suites:
 
-| Group | Tests | What's tested |
-|-------|-------|---------------|
-| `resolveTitle` | 8 | Title priority: BigTitle → Title → tickerText → "" |
-| `resolveText` | 11 | Text priority: BigText → TextLines → Text → SummaryText → tickerText → "" |
-| `isOngoing` | 3 | Detection of `FLAG_ONGOING_EVENT` |
+- **37 unit tests** for `NotificationListenerService` (title/text resolution, ongoing detection, exclusion rules, classification parsing)
+- **15 unit tests** for `AppPrefs` (history limit 50, exclusion rules CRUD, JSON roundtrips)
+- **4 Compose UI tests** (`MainScreenUiTest`) — tab switching and add-rule dialog validation, run on the JVM via Robolectric (no emulator needed)
 
-**Stack:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker for `Bundle`).
+**Stack:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker for `Bundle`) + Robolectric 4.13 + Compose `ui-test-junit4`.
+
+**Note:** Compose UI tests run only on the debug variant (`testReleaseUnitTest` excludes them — they need the debug-only `ui-test-manifest`).
 
 ```bash
 # Run tests
@@ -185,7 +185,7 @@ The project contains **22 unit tests** for `NotificationListenerService`:
 
 ### CI
 
-Every push to `main` runs tests automatically. JaCoCo report (HTML+XML) uploaded as `coverage-report` artifact (14 days).
+Every push to `main` runs tests automatically (`./gradlew test`, includes the Robolectric Compose UI tests). JaCoCo report (HTML+XML) uploaded as `coverage-report` artifact (14 days).
 
 ---
 
