@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,11 +51,11 @@ fun HistoryTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
 
     ListTabCard(modifier = modifier.padding(16.dp)) {
         item(key = "header") {
-            SectionHeader("ИСТОРИЯ ОТПРАВКИ")
+            SectionHeader(stringResource(R.string.section_history))
 
             if (history.isEmpty()) {
                 Text(
-                    text = "Нет записей",
+                    text = stringResource(R.string.no_records),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 12.dp)
@@ -62,17 +63,23 @@ fun HistoryTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
             } else {
                 val lastEntry = history.last()
                 Text(
-                    text = "Всего: ${history.size} | Успешно: $successCount | " +
-                        "Последняя: ${lastEntry.appName} в ${formatTime(lastEntry.timestamp, "HH:mm")}",
+                    text = stringResource(
+                        R.string.history_summary,
+                        history.size,
+                        successCount,
+                        lastEntry.appName,
+                        formatTime(lastEntry.timestamp, "HH:mm")
+                    ),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
+                val clearedMsg = stringResource(R.string.history_cleared)
                 Button(
                     onClick = {
                         prefs.clearHistory()
                         history = emptyList()
-                        context.toast("История очищена")
+                        context.toast(clearedMsg)
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -81,7 +88,7 @@ fun HistoryTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                 ) {
                     Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Очистить историю")
+                    Text(stringResource(R.string.clear_history))
                 }
                 Spacer(Modifier.height(4.dp))
             }
@@ -93,7 +100,7 @@ fun HistoryTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
     }
 }
 
-/** Строка записи истории (замена item_history.xml + HistoryAdapter). */
+/** Строка записи истории. */
 @Composable
 private fun HistoryRow(entry: WebhookEntry) {
     Column(
@@ -149,14 +156,15 @@ private fun HistoryRow(entry: WebhookEntry) {
                 )
             }
             Text(
-                text = if (entry.httpCode > 0) "HTTP ${entry.httpCode}" else "Ошибка соединения",
+                text = if (entry.httpCode > 0) "HTTP ${entry.httpCode}"
+                else stringResource(R.string.http_error_conn),
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(top = 1.dp)
             )
 
-            // Статус классификации (второй запрос) — показываем только если был результат
+            // Статус классификации (второй запрос)
             val classifyStatus = entry.classifyStatus
             if (classifyStatus != null) {
                 Text(
@@ -176,15 +184,15 @@ private fun HistoryRow(entry: WebhookEntry) {
     }
 }
 
+@Composable
+private fun classifyStatusLabel(status: String): String = when (status) {
+    "dismiss" -> stringResource(R.string.promo_dismiss)
+    "keep" -> stringResource(R.string.promo_keep)
+    "pending" -> stringResource(R.string.promo_pending)
+    "error" -> stringResource(R.string.promo_error)
+    "disabled" -> stringResource(R.string.promo_disabled)
+    else -> stringResource(R.string.promo_other, status)
+}
+
 private fun formatTime(timestamp: Long, pattern: String): String =
     SimpleDateFormat(pattern, Locale.getDefault()).format(Date(timestamp))
-
-/** Человекочитаемая подпись статуса классификации. */
-private fun classifyStatusLabel(status: String): String = when (status) {
-    "dismiss" -> "Промо: смахнуто"
-    "keep" -> "Промо: оставлено"
-    "pending" -> "Промо: ожидание"
-    "error" -> "Промо: ошибка"
-    "disabled" -> "Промо: выкл"
-    else -> "Промо: $status"
-}

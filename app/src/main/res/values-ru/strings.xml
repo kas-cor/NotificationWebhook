@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NotifWebhook</string>
+
+    <!-- Навигация -->
+    <string name="tab_home">Главная</string>
+    <string name="tab_exclusions">Исключения</string>
+    <string name="tab_history">История</string>
+    <string name="tab_settings">Настройки</string>
+
+    <!-- Главная: статус -->
+    <string name="section_status">СТАТУС</string>
+    <string name="listener_active">Слушатель активен ✓</string>
+    <string name="listener_inactive">Слушатель неактивен</string>
+    <string name="grant_access">Предоставить доступ к уведомлениям</string>
+    <string name="grant_access_done">✓ Доступ к уведомлениям есть</string>
+    <string name="grant_dialog_title">Доступ к уведомлениям</string>
+    <string name="grant_dialog_msg1">Откроются настройки системы.\n\n</string>
+    <string name="grant_dialog_msg2">Найдите «NotifWebhook» и включите переключатель.\n\n</string>
+    <string name="grant_dialog_msg3">После этого вернитесь в приложение.</string>
+    <string name="open_settings">Открыть настройки</string>
+    <string name="cancel">Отмена</string>
+    <string name="battery_exempt">Отключить оптимизацию батареи</string>
+    <string name="battery_exempt_done">✓ Оптимизация батареи отключена</string>
+    <string name="battery_already">Уже исключено из оптимизации</string>
+
+    <!-- Главная: webhook -->
+    <string name="section_webhook">WEBHOOK URL</string>
+    <string name="hint_url">https://example.com/webhook</string>
+    <string name="hint_token">Bearer token (опционально)</string>
+    <string name="show_token">Показать токен</string>
+    <string name="hide_token">Скрыть токен</string>
+    <string name="save">Сохранить</string>
+    <string name="url_saved">✓ URL и токен сохранены</string>
+    <string name="test_post">Тест POST</string>
+    <string name="sending">Отправка…</string>
+    <string name="url_required">Сначала введите и сохраните webhook URL</string>
+    <string name="url_invalid">URL должен начинаться с http:// или https://</string>
+    <string name="test_success">✓ Успешно! HTTP %1$d</string>
+    <string name="test_http_error">✗ HTTP ошибка: %1$d</string>
+    <string name="test_error">✗ Ошибка: %1$s</string>
+    <string name="test_title">Тестовое уведомление</string>
+    <string name="test_text">Соединение с webhook работает корректно</string>
+
+    <!-- История -->
+    <string name="section_history">ИСТОРИЯ ОТПРАВКИ</string>
+    <string name="no_records">Нет записей</string>
+    <string name="clear_history">Очистить историю</string>
+    <string name="history_cleared">История очищена</string>
+    <string name="history_summary">Всего: %1$d | Успешно: %2$d | Последняя: %3$s в %4$s</string>
+    <string name="http_error_conn">Ошибка соединения</string>
+    <string name="promo_dismiss">Промо: смахнуто</string>
+    <string name="promo_keep">Промо: оставлено</string>
+    <string name="promo_pending">Промо: ожидание</string>
+    <string name="promo_error">Промо: ошибка</string>
+    <string name="promo_disabled">Промо: выкл</string>
+    <string name="promo_other">Промо: %1$s</string>
+
+    <!-- Исключения -->
+    <string name="section_apps">ПРИЛОЖЕНИЯ</string>
+    <string name="apps_hint">Выберите приложения для пересылки. Пусто = все приложения</string>
+    <string name="loading">Загрузка…</string>
+    <string name="section_rules">ПРАВИЛА ИСКЛЮЧЕНИЙ</string>
+    <string name="rules_hint">Уведомления, где в выбранном поле найдено совпадение, будут пропущены</string>
+    <string name="no_rules">Правил пока нет — пересылаются все уведомления</string>
+    <string name="add_rule">Добавить правило</string>
+    <string name="rule_added">✓ Правило добавлено</string>
+    <string name="add_rule_dialog">Добавить правило исключения</string>
+    <string name="field_search">Поле для поиска</string>
+    <string name="pattern_search">Текст для поиска</string>
+    <string name="enter_pattern">Введите текст для поиска</string>
+    <string name="add">Добавить</string>
+    <string name="field_title">Заголовок</string>
+    <string name="field_text">Текст</string>
+    <string name="field_appname">Имя приложения</string>
+    <string name="field_pkg">Пакет</string>
+    <string name="field_title_opt">Заголовок (title)</string>
+    <string name="field_text_opt">Текст (text)</string>
+    <string name="field_appname_opt">Имя приложения (app_name)</string>
+    <string name="field_pkg_opt">Пакет (app_package)</string>
+    <string name="delete_rule">Удалить правило</string>
+
+    <!-- Настройки -->
+    <string name="section_settings">НАСТРОЙКИ</string>
+    <string name="settings_forward">Пересылать уведомления</string>
+    <string name="settings_ongoing">Пропускать ongoing</string>
+    <string name="settings_ongoing_sub">Музыка, навигация, системные</string>
+    <string name="settings_promo">Автосмахивание промо</string>
+    <string name="settings_promo_sub">Классифицировать и смахивать акции</string>
+    <string name="access_required_first">Сначала предоставьте доступ к уведомлениям</string>
+    <string name="section_language">ЛОКАЛИЗАЦИЯ</string>
+    <string name="lang_system">Язык системы</string>
+    <string name="lang_ru">Русский</string>
+    <string name="lang_en">Английский</string>
+    <string name="section_theme">ТЕМА</string>
+    <string name="theme_system">Системная</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="section_about">О ПРИЛОЖЕНИИ</string>
+    <string name="app_version">Версия %1$s</string>
+    <string name="check_updates">Проверить обновления</string>
+    <string name="checking_updates">Проверка…</string>
+    <string name="up_to_date">Установлена последняя версия</string>
+    <string name="update_available">Доступна версия: %1$s</string>
+    <string name="github_repo">Репозиторий GitHub</string>
+    <string name="update_check_error">Не удалось проверить обновления</string>
+    <string name="download">Скачать</string>
+</resources>
