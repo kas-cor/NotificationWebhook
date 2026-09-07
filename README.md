@@ -19,9 +19,11 @@ An Android app that intercepts notifications from other apps via `NotificationLi
 - 🎯 **Per-app filter** — include specific apps or forward everything
 - 🚫 **Skip ongoing notifications** — music, navigation, system alerts can be excluded
 - 🔁 **Auto-start** — after device reboot
-- 🌗 **Material 3 Design** — light and dark theme (system-aware)
+- 🌗 **Material 3 Design** — light and dark theme (system-aware, also manual override)
 - ✅ **Test POST** — built-in button to verify webhook connectivity
 - 🔐 **Bearer token** — optional `Authorization: Bearer <token>` header
+- 🌐 **Localization** — system / Russian / English (persisted, applies on Activity recreate)
+- 🎨 **Theme override** — system / light / dark (reactive, no restart)
 - 🧹 **Auto-swipe promos** — if the server classifies a notification as promo/deal, the app swipes it away (clean notification shade)
 
 ### Auto-swipe promos (agent classification)
@@ -76,6 +78,7 @@ NotificationListenerService  ← system bind via BIND_NOTIFICATION_LISTENER_SERV
         │  → dedup (3s window)
         │  → buildPayload() → JSONObject
         │  → sendToWebhook() ← Coroutine IO dispatcher
+        │    + optional promo classification request + poll
         ▼
    Webhook HTTP POST
 
@@ -92,11 +95,24 @@ ForegroundKeepAliveService  ← START_STICKY foreground service
 | File | Purpose |
 |------|---------|
 | `NotificationListenerService.kt` | Core: intercept, dedup, build JSON, HTTP POST |
-| `MainActivity.kt` | Compose host: `MainScreen` with 4 bottom-nav tabs |
-| `ui/MainScreen.kt`, `ui/*Tab.kt` | Compose UI: Home (status/webhook/settings), Apps, Exclusion rules, History |
+| `MainActivity.kt` | Compose host: applies persisted locale, holds reactive theme/locale state, recreates on locale change, passes callbacks to `MainScreen` |
+| `ui/MainScreen.kt`, `ui/*Tab.kt` | Compose UI: Home (status/webhook), Exclusions (apps + rules), History, Settings (toggles/locale/theme/about) |
 | `ForegroundKeepAliveService.kt` | Foreground service to keep process alive |
 | `BootReceiver.kt` | Auto-start after reboot / package update |
-| `AppPrefs.kt` | Thread-safe SharedPreferences singleton |
+| `AppPrefs.kt` | Thread-safe SharedPreferences singleton (encrypted, AES256-GCM) |
+
+## Settings tab
+
+- **Forward notifications** — main on/off; requires notification access to enable
+- **Skip ongoing** — music, navigation, system notifications
+- **Auto-swipe promos** — classification toggle (on by default)
+- **Language** — system / Russian / English
+- **Theme** — system / light / dark
+- **About** — version (from `BuildConfig.VERSION_NAME`), check for updates (GitHub API), GitHub repo link
+
+## Localization
+
+All UI strings are externalized to `res/values/strings.xml` (English default) and `res/values-ru/strings.xml`. Language choice is persisted in `AppPrefs` and applied on Activity recreate; the default follows the system language, falls back to English.
 
 ## Setup (User Steps)
 
@@ -124,13 +140,16 @@ Xiaomi's security system aggressively blocks background services. Additional ste
 ## Design
 
 - **Jetpack Compose (Material 3)** — rounded cards, accent blue color
-- **Dark theme** — automatic (DayNight)
-- **Bottom navigation with 4 tabs:** Главная (status, webhook URL, settings) / Приложения / Правила исключений / История
+- **Dark theme** — automatic (system) or manual override (light/dark)
+- **Bottom navigation with 4 tabs:** Главная (status, webhook URL) / Исключения (apps + rules) / История / Настройки (toggles, localization, theme, about)
 - **Bearer token** — input field with password visibility toggle
+- **Localization** — EN/ru/system; theme system/light/dark
 
 ### Webhook Send History
 
-The app stores the last **50 webhook sends** locally. Each record includes app, title/text, success/failure, HTTP code, and timestamp.
+The app stores the last **50 webhook sends** locally. Each record includes app, title/text, success/failure, HTTP code, timestamp, and optional classification status.
+
+Classification status shown in history: `dismiss`, `keep`, `pending`, `error`, `disabled`, or other.
 
 ### Exclusion Rules
 
@@ -138,6 +157,8 @@ Notifications can be filtered before sending:
 - Fields: `title`, `text`, `app_name`, `app_package`
 - Case-insensitive substring match
 - Any rule match → notification is dropped
+
+The Exclusions tab merges app selection and exclusion rules in one screen: apps at top (empty = all forwarded), rules below, add rule via Compose dialog with field dropdown.
 
 ## Android 14+ (API 34) Specifics
 
@@ -161,13 +182,14 @@ Notifications can be filtered before sending:
 | Compose Compiler | 1.5.8 (Kotlin 1.9.22) |
 | Coroutines | 1.8.1 |
 | AndroidX Core-KTX | 1.13.1 |
+| AndroidX Security Crypto | 1.1.0-alpha06 |
 
 ## Testing
 
 The project contains **56 tests** in 3 suites:
 
 - **37 unit tests** for `NotificationListenerService` (title/text resolution, ongoing detection, exclusion rules, classification parsing)
-- **15 unit tests** for `AppPrefs` (history limit 50, exclusion rules CRUD, JSON roundtrips)
+- **15 unit tests** for `AppPrefs` (history limit 50, exclusion rules CRUD, JSON roundtrips; `classifyStatus` roundtrip, null handling, unique rule id generation)
 - **4 Compose UI tests** (`MainScreenUiTest`) — tab switching and add-rule dialog validation, run on the JVM via Robolectric (no emulator needed)
 
 **Stack:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker for `Bundle`) + Robolectric 4.13 + Compose `ui-test-junit4`.

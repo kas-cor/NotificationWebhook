@@ -25,6 +25,7 @@ The user installs the app, grants notification access, enters a webhook URL, and
 | JaCoCo | 0.8.11 |
 | JUnit | 4.13.2 |
 | Mockito | 5.11.0 (inline mock maker) |
+| AndroidX Security Crypto | 1.1.0-alpha06 |
 
 ---
 
@@ -38,6 +39,7 @@ NotificationListenerService   ← system bind via BIND_NOTIFICATION_LISTENER_SER
         │  → buildPayload() → JSONObject
         │  → sendToWebhook() ← Coroutine IO dispatcher
         │    + Authorization: Bearer <token> (if set)
+        │    + optional: promo classification request + poll
         ▼
    Webhook HTTP POST
 
@@ -48,31 +50,32 @@ ForegroundKeepAliveService   ← START_STICKY foreground service (specialUse, AP
    Persistent notification in status bar
 
 BootReceiver  ← BOOT_COMPLETED / MY_PACKAGE_REPLACED → ForegroundKeepAliveService.start()
-AppPrefs      ← Thread-safe SharedPreferences singleton
+AppPrefs      ← Thread-safe SharedPreferences singleton (encrypted prefs via AES256-GCM)
+
 MainActivity  ← Jetpack Compose (setContent)
-   └─ MainScreen ← Scaffold + NavigationBar: 4 вкладки
-      ├─ HomeTab    — статус NLS, webhook URL, Bearer token, toggles, тест POST
-      ├─ AppsTab    — список приложений (LazyColumn)
-      ├─ RulesTab   — правила исключений + диалог добавления
-      └─ HistoryTab — история отправки (LazyColumn)
+   └─ MainScreen ← Scaffold + NavigationBar: 4 tabs
+      ├─ HomeTab      — NLS status, webhook URL, Bearer token, test POST, promo switch moved out
+      ├─ ExclusionsTab— installed apps selection (empty = all) + exclusion rules (title/text/app_name/app_package)
+      ├─ HistoryTab   — last 50 webhook sends, clear button, classification status labels
+      └─ SettingsTab  — forward / skip-ongoing / auto-swipe promo toggles, locale (system/ru/en),
+                        theme (system/light/dark), about (version + GitHub update check + repo link)
 ```
 
 ### Components
 
 | File | Description |
 |---|---|
-| `MainActivity.kt` | Thin Activity: `setContent { NotifWebhookTheme { MainScreen(prefs) } }` |
-| `ui/Theme.kt` | Compose-тема (light/dark ColorScheme из `colors.xml`) |
-| `ui/MainScreen.kt` | Scaffold + bottom NavigationBar (4 вкладки: Главная / Приложения / Правила / История) |
-| `ui/HomeTab.kt` | Статус NLS, доступ к уведомлениям, батарея, webhook URL/Bearer, toggles, тест POST |
-| `ui/AppsTab.kt` | Список установленных приложений с иконками и чекбоксами |
-| `ui/RulesTab.kt` | Правила исключений + Compose-диалог добавления (ExposedDropdownMenu) |
-| `ui/HistoryTab.kt` | История webhook-отправок + очистка |
-| `ui/Components.kt` | Общие компоненты: SectionCard, SectionHeader, ListTabCard, toast |
+| `MainActivity.kt` | Thin Activity: applies persisted locale if set, holds reactive `themeMode`/`locale` state, `recreate()` on locale change, passes theme/locale + callbacks to `MainScreen` |
+| `ui/Theme.kt` | Compose theme (light/dark ColorScheme from `colors.xml`); dark theme driven reactively from `themeMode` |
+| `ui/MainScreen.kt` | Scaffold + bottom `NavigationBar` (4 tabs: `MainTab` enum: `Home`, `Exclusions`, `History`, `Settings`). Labels from `stringResource(tab.labelRes)` |
+| `ui/HomeTab.kt` | Status (NLS connected/lifecycle), notification access, battery optimization, webhook URL + Bearer token, Test POST |
+| `ui/ExclusionsTab.kt` | Installed non-system apps with icons + checkboxes (allowed apps set); exclusion rules list + `AddRuleDialog` (ExposedDropdownMenu for field + pattern input) |
+| `ui/HistoryTab.kt` | History rows (app, title/text, HTTP code, time) + promo classification status label when present; clear button |
+| `ui/SettingsTab.kt` | Three toggles (forward/ongoing/promo), locale radio group, theme radio group, about card with version (`BuildConfig.VERSION_NAME`), GitHub update check (`GET /repos/.../releases/latest`), repo link |
+| `ui/Components.kt` | Shared: `SectionCard`, `SectionHeader`, `ListTabCard`, toast extension |
 | `NotificationListenerService.kt` | Core: intercept, dedup, resolveTitle/resolveText, JSON, HTTP POST |
 | `ForegroundKeepAliveService.kt` | Foreground service to keep process alive (specialUse, API 34) |
 | `BootReceiver.kt` | Auto-start after reboot / package update |
-| `AppPrefs.kt` | Singleton wrapper around SharedPreferences |
 
 ### JSON Payload
 
@@ -113,16 +116,16 @@ MainActivity  ← Jetpack Compose (setContent)
 | `parseClassificationId` | 4 | NotificationListenerService classification parsing |
 | `isDismissAction` | 1 | Action detection |
 
-**15 tests** for `AppPrefsTest` (`WebhookEntry`/`ExclusionRule` JSON roundtrip, history limit 50, exclusion rules CRUD).
+**15 tests** for `AppPrefsTest` (`WebhookEntry`/`ExclusionRule` JSON roundtrip, history limit 50, exclusion rules CRUD; `classifyStatus` roundtrip, null handling for absent field, unique id generation).
 
 **4 Compose UI tests** (`MainScreenUiTest`) run on the JVM via Robolectric (no emulator):
 
 | Test | What's tested |
 |---|---|
-| `bottomNavigation_switchesBetweenAllTabs` | 4 bottom-nav tabs show their content |
+| `bottomNavigation_switchesBetweenAllTabs` | 4 bottom-nav tabs show their content (EN default on Robolectric) |
 | `addRuleDialog_showsValidationErrorOnEmptyPattern` | Empty pattern blocks submit + shows error |
 | `addRuleDialog_addsRuleAndPersists` | Rule is added, shown in list, persisted in prefs |
-| `historyTab_showsEntriesAndClears` | History rows rendered, clear button empties list |
+| `historyTab_showsEntriesAndClears` | History rows rendered (incl. classification status label), clear button empties list |
 
 UI tests run only for the debug variant (`testDebugUnitTest`): `createComposeRule` needs `ComponentActivity` from `ui-test-manifest`, which is a `debugImplementation`. `testReleaseUnitTest` excludes `MainScreenUiTest` in `app/build.gradle`.
 
@@ -234,6 +237,16 @@ Notifications can be filtered client-side before sending:
 - Pattern: case-insensitive substring match
 - Any rule match → notification is dropped (never sent)
 
+## Auto-swipe Promos / Classification
+
+If classification is enabled and the server returns a `dismiss` verdict, the corresponding notification can be auto-swiped. History shows the classification status: `dismiss`, `keep`, `pending`, `error`, `disabled` (or other).
+
+## Localization & Theme
+
+- **Language:** system / Russian / English (stored in prefs, applied on Activity recreate; default follows system, falls back to English)
+- **Theme:** system / light / dark (reactive, no Activity recreate needed)
+- All UI strings externalized to `res/values/strings.xml` (EN) and `res/values-ru/strings.xml`
+
 ## Android 14+ (API 34) Specifics
 
 | Issue | Solution |
@@ -265,10 +278,18 @@ Notifications can be filtered client-side before sending:
 
 - **Language:** Kotlin, JVM target 17
 - **Coroutines:** `Dispatchers.IO` for network, `Dispatchers.Main` for UI
-- **SharedPreferences:** Thread-safe singleton via `AppPrefs`
+- **SharedPreferences:** Thread-safe singleton via `AppPrefs`; encrypted prefs via `EncryptedSharedPreferences` (AES256-GCM), fallback to plain `SharedPreferences` if master key init fails
 - **Dedup:** `LinkedHashMap`, 3s window, max 50 entries
 - **Network:** Standard `HttpURLConnection`, synchronous calls in IO dispatcher. If Bearer token is set, adds `Authorization: Bearer <token>` header
-- **UI:** Jetpack Compose + Material3. Single `MainScreen` with bottom `NavigationBar`, 4 tabs (`MainTab` enum). Lists are `LazyColumn` inside `ListTabCard`. Dialogs are Compose `AlertDialog`. No XML layouts or RecyclerView adapters
+- **UI:** Jetpack Compose + Material3. Single `MainScreen` with bottom `NavigationBar`, 4 tabs (`MainTab` enum). Bottom nav labels come from `R.string`. Tabs:
+  - **Home** — status + webhook (settings toggles moved out)
+  - **Exclusions** — app selection + exclusion rules (merged from separate Apps/Rules tabs)
+  - **History** — send history
+  - **Settings** — toggles, localization, theme, about (version, GitHub update check)
+  - Lists are `LazyColumn` inside `ListTabCard`. Dialogs are Compose `AlertDialog` (e.g., `AddRuleDialog`). No XML layouts or RecyclerView adapters.
+- **Prefs new fields:** `classificationEnabled` (promo auto-swipe toggle), `themeMode` (`system`/`light`/`dark`), `locale` (`""`/`ru`/`en`)
+- **BuildConfig:** enabled for `VERSION_NAME`, used in Settings about card
+- **NLS status check:** read via `Settings.Secure.enabled_notification_listeners` (reliable on API 34); live updates via broadcast receiver in HomeTab
 - **Logging:** Tag `NLS_Webhook` for ListenerService, `KeepAliveService` for foreground service, `BootReceiver` for receiver
 - **Testing:** JUnit + Mockito (inline mock maker), 52 unit tests + 4 Compose UI tests (Robolectric, debug variant only)
 - **CI:** lint → test → JaCoCo → assembleDebug → assembleRelease → artifacts
