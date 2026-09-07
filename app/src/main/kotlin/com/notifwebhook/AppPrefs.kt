@@ -99,6 +99,20 @@ class AppPrefs internal constructor(private val sp: SharedPreferences) {
         get() = sp.getBoolean(KEY_CLASSIFICATION_ENABLED, true)
         set(v) = sp.edit().putBoolean(KEY_CLASSIFICATION_ENABLED, v).apply()
 
+    /**
+     * Режим темы: "system" | "light" | "dark". По умолчанию — системный.
+     */
+    var themeMode: String
+        get() = sp.getString(KEY_THEME_MODE, "system") ?: "system"
+        set(v) = sp.edit().putString(KEY_THEME_MODE, v).apply()
+
+    /**
+     * Язык интерфейса: "" (системный) | "ru" | "en". По умолчанию — системный.
+     */
+    var locale: String
+        get() = sp.getString(KEY_LOCALE, "") ?: ""
+        set(v) = sp.edit().putString(KEY_LOCALE, v).apply()
+
     var bearerToken: String
         get() = sp.getString(KEY_BEARER_TOKEN, "").orEmpty()
         set(v) = sp.edit().putString(KEY_BEARER_TOKEN, v).apply()
@@ -187,6 +201,8 @@ class AppPrefs internal constructor(private val sp: SharedPreferences) {
         private const val KEY_FORWARDING_ENABLED = "forwarding_enabled"
         private const val KEY_SKIP_ONGOING = "skip_ongoing"
         private const val KEY_CLASSIFICATION_ENABLED = "classification_enabled"
+        private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_LOCALE = "locale"
         private const val KEY_ALLOWED_APPS = "allowed_apps"
         private const val KEY_HISTORY = "webhook_history"
         private const val KEY_EXCLUSION_RULES = "exclusion_rules"
