@@ -81,6 +81,18 @@
         android:fontFamily="monospace"
         tools:text="HTTP 200"/>
 
+    <TextView
+        android:id="@+id/history_classify"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="10sp"
+        android:textColor="?attr/colorPrimary"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="1dp"
+        android:fontFamily="monospace"
+        tools:text="Промо: dismissed"
+        android:visibility="gone"/>
+
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"

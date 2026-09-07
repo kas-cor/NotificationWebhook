@@ -309,6 +309,26 @@ class NotificationListenerService : NotificationListenerService() {
             delay(RETRY_DELAYS_MS[attempt])
         }
         Log.d(tag, "Webhook result: ${result.success} (${result.httpCode}) for ${work.packageName}")
+
+        // Classification pipeline: after a successful POST, poll the server for
+        // the agent verdict. If it says "dismiss", swipe the notification away.
+        // Skipped entirely when the user disabled the feature.
+        var classifyStatus: String? = null
+        if (result.success) {
+            if (work.prefs.classificationEnabled) {
+                val classificationId = parseClassificationId(result.responseBody)
+                if (!classificationId.isNullOrBlank()) {
+                    Log.d(tag, "Classification pending: $classificationId (key=${work.notificationKey})")
+                    classifyStatus = pollAndMaybeDismiss(work.webhookUrl, classificationId, work.notificationKey)
+                } else {
+                    Log.d(tag, "Server did not return classification_id; skip polling")
+                }
+            } else {
+                classifyStatus = "disabled"
+                Log.d(tag, "Classification disabled by user; skip polling")
+            }
+        }
+
         work.prefs.addHistoryEntry(
             WebhookEntry(
                 timestamp = System.currentTimeMillis(),
@@ -317,48 +337,45 @@ class NotificationListenerService : NotificationListenerService() {
                 title = work.title,
                 text = work.text,
                 success = result.success,
-                httpCode = result.httpCode
+                httpCode = result.httpCode,
+                classifyStatus = classifyStatus
             )
         )
-
-        // Classification pipeline: after a successful POST, poll the server for
-        // the agent verdict. If it says "dismiss", swipe the notification away.
-        if (result.success) {
-            val classificationId = parseClassificationId(result.responseBody)
-            if (!classificationId.isNullOrBlank()) {
-                Log.d(tag, "Classification pending: $classificationId (key=${work.notificationKey})")
-                pollAndMaybeDismiss(work.webhookUrl, classificationId, work.notificationKey)
-            } else {
-                Log.d(tag, "Server did not return classification_id; skip polling")
-            }
-        }
     }
 
     /**
      * Poll the classification status until it resolves or the client gives up.
      * On "dismiss" the notification is swiped via cancelNotification(key).
      * Fail-open: any error/timeout leaves the notification visible.
+     * Returns the terminal status: "dismiss", "keep", "pending" (gave up) or "error".
      */
-    private suspend fun pollAndMaybeDismiss(webhookUrl: String, classificationId: String, notificationKey: String) {
+    private suspend fun pollAndMaybeDismiss(webhookUrl: String, classificationId: String, notificationKey: String): String {
         var attempt = 0
+        var hadError = false
         while (attempt < CLASSIFICATION_MAX_POLLS) {
             delay(CLASSIFICATION_POLL_DELAY_MS)
             attempt++
-            val status = fetchClassificationStatus(webhookUrl, classificationId) ?: return
+            val status = fetchClassificationStatus(webhookUrl, classificationId)
+            if (status == null) {
+                hadError = true
+                Log.w(tag, "Classification fetch error (attempt $attempt); keep waiting")
+                continue
+            }
             when (status) {
                 "dismiss" -> {
                     Log.i(tag, "Agent verdict: dismiss → swiping $notificationKey")
                     cancelNotification(notificationKey)
-                    return
+                    return "dismiss"
                 }
                 "keep" -> {
                     Log.d(tag, "Agent verdict: keep — notification stays")
-                    return
+                    return "keep"
                 }
                 else -> Log.d(tag, "Classification still pending (${status ?: "unknown"}), attempt $attempt")
             }
         }
         Log.d(tag, "Classification polling exhausted; fail-open — notification stays")
+        return if (hadError) "error" else "pending"
     }
 
     /** GET /classification/{id}, returns "keep"/"dismiss"/"pending" or null on error. */
