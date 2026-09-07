@@ -173,11 +173,11 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 
 ## Тестирование
 
-Проект содержит **56 тестов** в трёх наборах:
+Проект содержит **59 тестов** в трёх наборах:
 
 - **37 unit-тестов** для `NotificationListenerService` (резолвинг заголовков/текста, ongoing, правила исключений, парсинг классификации)
-- **15 unit-тестов** для `AppPrefs` (лимит истории 50, CRUD правил исключений, JSON roundtrip; roundtrip `classifyStatus`, обработка отсутствующего поля, генерация уникального id правила)
-- **4 Compose UI-теста** (`MainScreenUiTest`) — переключение вкладок и валидация диалога добавления правила, запускаются на JVM через Robolectric (эмулятор не нужен)
+- **17 unit-тестов** для `AppPrefs` (лимит истории 50, CRUD правил исключений, JSON roundtrip; roundtrip `classifyStatus`, обработка отсутствующего поля, генерация уникального id правила)
+- **5 Compose UI-тестов** (`MainScreenUiTest`) — переключение вкладок, валидация диалога добавления правила и персистентность переключателя классификации, запускаются на JVM через Robolectric (эмулятор не нужен)
 
 **Стек:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker для `Bundle`) + Robolectric 4.13 + Compose `ui-test-junit4`.
 

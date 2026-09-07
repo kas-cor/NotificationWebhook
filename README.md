@@ -186,11 +186,11 @@ The Exclusions tab merges app selection and exclusion rules in one screen: apps 
 
 ## Testing
 
-The project contains **56 tests** in 3 suites:
+The project contains **59 tests** in 3 suites:
 
 - **37 unit tests** for `NotificationListenerService` (title/text resolution, ongoing detection, exclusion rules, classification parsing)
-- **15 unit tests** for `AppPrefs` (history limit 50, exclusion rules CRUD, JSON roundtrips; `classifyStatus` roundtrip, null handling, unique rule id generation)
-- **4 Compose UI tests** (`MainScreenUiTest`) — tab switching and add-rule dialog validation, run on the JVM via Robolectric (no emulator needed)
+- **17 unit tests** for `AppPrefs` (history limit 50, exclusion rules CRUD, JSON roundtrips; `classifyStatus` roundtrip, null handling, unique rule id generation)
+- **5 Compose UI tests** (`MainScreenUiTest`) — tab switching, add-rule dialog validation, and classification toggle persistence, run on the JVM via Robolectric (no emulator needed)
 
 **Stack:** JUnit 4.13.2 + Mockito 5.11.0 (inline mock maker for `Bundle`) + Robolectric 4.13 + Compose `ui-test-junit4`.
 

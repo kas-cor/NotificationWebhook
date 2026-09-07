@@ -116,9 +116,9 @@ MainActivity  ← Jetpack Compose (setContent)
 | `parseClassificationId` | 4 | NotificationListenerService classification parsing |
 | `isDismissAction` | 1 | Action detection |
 
-**15 tests** for `AppPrefsTest` (`WebhookEntry`/`ExclusionRule` JSON roundtrip, history limit 50, exclusion rules CRUD; `classifyStatus` roundtrip, null handling for absent field, unique id generation).
+**17 tests** for `AppPrefsTest` (`WebhookEntry`/`ExclusionRule` JSON roundtrip, history limit 50, exclusion rules CRUD; `classifyStatus` roundtrip, null handling for absent field, unique id generation).
 
-**4 Compose UI tests** (`MainScreenUiTest`) run on the JVM via Robolectric (no emulator):
+**5 Compose UI tests** (`MainScreenUiTest`) run on the JVM via Robolectric (no emulator):
 
 | Test | What's tested |
 |---|---|
@@ -126,6 +126,7 @@ MainActivity  ← Jetpack Compose (setContent)
 | `addRuleDialog_showsValidationErrorOnEmptyPattern` | Empty pattern blocks submit + shows error |
 | `addRuleDialog_addsRuleAndPersists` | Rule is added, shown in list, persisted in prefs |
 | `historyTab_showsEntriesAndClears` | History rows rendered (incl. classification status label), clear button empties list |
+| `settings_classificationTogglePersists` | Promo auto-swipe toggle on Settings tab persists to prefs |
 
 UI tests run only for the debug variant (`testDebugUnitTest`): `createComposeRule` needs `ComponentActivity` from `ui-test-manifest`, which is a `debugImplementation`. `testReleaseUnitTest` excludes `MainScreenUiTest` in `app/build.gradle`.
 
@@ -291,7 +292,7 @@ If classification is enabled and the server returns a `dismiss` verdict, the cor
 - **BuildConfig:** enabled for `VERSION_NAME`, used in Settings about card
 - **NLS status check:** read via `Settings.Secure.enabled_notification_listeners` (reliable on API 34); live updates via broadcast receiver in HomeTab
 - **Logging:** Tag `NLS_Webhook` for ListenerService, `KeepAliveService` for foreground service, `BootReceiver` for receiver
-- **Testing:** JUnit + Mockito (inline mock maker), 52 unit tests + 4 Compose UI tests (Robolectric, debug variant only)
+- **Testing:** JUnit + Mockito (inline mock maker), 54 unit tests + 5 Compose UI tests (Robolectric, debug variant only)
 - **CI:** lint → test → JaCoCo → assembleDebug → assembleRelease → artifacts
 - **APK signing:** via secrets `KEYSTORE_BASE64` + `KEYSTORE_PASSWORD`
 
