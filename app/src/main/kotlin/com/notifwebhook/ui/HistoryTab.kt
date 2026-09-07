@@ -155,6 +155,18 @@ private fun HistoryRow(entry: WebhookEntry) {
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(top = 1.dp)
             )
+
+            // Статус классификации (второй запрос) — показываем только если был результат
+            val classifyStatus = entry.classifyStatus
+            if (classifyStatus != null) {
+                Text(
+                    text = classifyStatusLabel(classifyStatus),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 1.dp)
+                )
+            }
         }
 
         HorizontalDivider(
@@ -166,3 +178,13 @@ private fun HistoryRow(entry: WebhookEntry) {
 
 private fun formatTime(timestamp: Long, pattern: String): String =
     SimpleDateFormat(pattern, Locale.getDefault()).format(Date(timestamp))
+
+/** Человекочитаемая подпись статуса классификации. */
+private fun classifyStatusLabel(status: String): String = when (status) {
+    "dismiss" -> "Промо: смахнуто"
+    "keep" -> "Промо: оставлено"
+    "pending" -> "Промо: ожидание"
+    "error" -> "Промо: ошибка"
+    "disabled" -> "Промо: выкл"
+    else -> "Промо: $status"
+}

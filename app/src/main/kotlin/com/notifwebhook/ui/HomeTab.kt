@@ -31,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -116,6 +117,7 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
     var tokenVisible by rememberSaveable { mutableStateOf(false) }
     var forwardingEnabled by remember { mutableStateOf(prefs.forwardingEnabled) }
     var skipOngoing by remember { mutableStateOf(prefs.skipOngoing) }
+    var classificationEnabled by remember { mutableStateOf(prefs.classificationEnabled) }
     var testing by remember { mutableStateOf(false) }
     var showAccessDialog by remember { mutableStateOf(false) }
 
@@ -406,6 +408,32 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                     onCheckedChange = { checked ->
                         skipOngoing = checked
                         prefs.skipOngoing = checked
+                    }
+                )
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 36.dp, top = 4.dp, bottom = 4.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            SettingsRow(
+                icon = {
+                    Icon(
+                        Icons.Filled.CleaningServices,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                title = "Автосмахивание промо",
+                subtitle = "Классифицировать и смахивать акции"
+            ) {
+                Switch(
+                    checked = classificationEnabled,
+                    onCheckedChange = { checked ->
+                        classificationEnabled = checked
+                        prefs.classificationEnabled = checked
                     }
                 )
             }
