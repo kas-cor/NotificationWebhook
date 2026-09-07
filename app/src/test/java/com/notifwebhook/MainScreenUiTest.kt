@@ -26,10 +26,6 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/**
- * Compose UI-тесты главного экрана (запускаются на JVM через Robolectric,
- * командой ./gradlew test — эмулятор не нужен).
- */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
@@ -46,34 +42,42 @@ class MainScreenUiTest {
         // Чтобы HomeTab не запускал системный диалог запроса POST_NOTIFICATIONS
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         prefs = AppPrefs(app.getSharedPreferences("ui_test_prefs", Context.MODE_PRIVATE))
+        var theme = "system"
+        var lang = ""
         composeRule.setContent {
             NotifWebhookTheme {
-                MainScreen(prefs)
+                MainScreen(
+                    prefs = prefs,
+                    themeMode = theme,
+                    locale = lang,
+                    onThemeChange = { theme = it },
+                    onLocaleChange = { lang = it }
+                )
             }
         }
     }
 
     // ---------------------------------------------------------------------
-    // Переключение вкладок
+    // Переключение вкладок (дефолтная локаль в Robolectric = en)
     // ---------------------------------------------------------------------
 
     @Test
     fun bottomNavigation_switchesBetweenAllTabs() {
-        // Стартовая вкладка — Главная
-        composeRule.onNodeWithText("СТАТУС").assertIsDisplayed()
+        // Стартовая вкладка — Home
+        composeRule.onNodeWithText("STATUS").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Приложения").performClick()
-        composeRule.onNodeWithText("ПРИЛОЖЕНИЯ").assertIsDisplayed()
+        composeRule.onNodeWithText("Exclusions").performClick()
+        composeRule.onNodeWithText("APPS").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Правила").performClick()
-        composeRule.onNodeWithText("ПРАВИЛА ИСКЛЮЧЕНИЙ").assertIsDisplayed()
+        composeRule.onNodeWithText("History").performClick()
+        composeRule.onNodeWithText("SEND HISTORY").assertIsDisplayed()
 
-        composeRule.onNodeWithText("История").performClick()
-        composeRule.onNodeWithText("ИСТОРИЯ ОТПРАВКИ").assertIsDisplayed()
+        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.onNodeWithText("SETTINGS").assertIsDisplayed()
 
-        // Возврат на Главную
-        composeRule.onNodeWithText("Главная").performClick()
-        composeRule.onNodeWithText("СТАТУС").assertIsDisplayed()
+        // Возврат на Home
+        composeRule.onNodeWithText("Home").performClick()
+        composeRule.onNodeWithText("STATUS").assertIsDisplayed()
     }
 
     // ---------------------------------------------------------------------
@@ -85,13 +89,13 @@ class MainScreenUiTest {
         openAddRuleDialog()
 
         // Пустой шаблон — диалог не закрывается, показывается ошибка
-        composeRule.onNodeWithText("Добавить").performClick()
-        composeRule.onNodeWithText("Введите текст для поиска").assertIsDisplayed()
+        composeRule.onNodeWithText("Add").performClick()
+        composeRule.onNodeWithText("Enter text to search").assertIsDisplayed()
 
         // Отмена не добавляет правило
-        composeRule.onNodeWithText("Отмена").performClick()
+        composeRule.onNodeWithText("Cancel").performClick()
         assertEquals(0, prefs.getExclusionRules().size)
-        composeRule.onNodeWithText("Правил пока нет — пересылаются все уведомления")
+        composeRule.onNodeWithText("No rules yet — all notifications are forwarded")
             .assertIsDisplayed()
     }
 
@@ -100,23 +104,23 @@ class MainScreenUiTest {
         openAddRuleDialog()
 
         // Пустой шаблон не проходит — правило не создаётся
-        composeRule.onNodeWithText("Добавить").performClick()
+        composeRule.onNodeWithText("Add").performClick()
         assertEquals(0, prefs.getExclusionRules().size)
 
-        // Вводим шаблон (поле по умолчанию — «Заголовок (title)») и добавляем
+        // Вводим шаблон (поле по умолчанию — «Title (title)») и добавляем
         composeRule
-            .onNode(hasSetTextAction() and hasText("Текст для поиска"))
-            .performTextInput("Банк")
-        composeRule.onNodeWithText("Добавить").performClick()
+            .onNode(hasSetTextAction() and hasText("Text to search"))
+            .performTextInput("Bank")
+        composeRule.onNodeWithText("Add").performClick()
 
         // Диалог закрыт, правило сохранено в prefs и показано в списке
         val rules = prefs.getExclusionRules()
         assertEquals(1, rules.size)
         assertEquals("title", rules[0].field)
-        assertEquals("Банк", rules[0].pattern)
+        assertEquals("Bank", rules[0].pattern)
 
-        composeRule.onNodeWithText("Банк").assertIsDisplayed()
-        composeRule.onNodeWithText("Заголовок").assertIsDisplayed()
+        composeRule.onNodeWithText("Bank").assertIsDisplayed()
+        composeRule.onNodeWithText("Title").assertIsDisplayed()
     }
 
     // ---------------------------------------------------------------------
@@ -130,8 +134,8 @@ class MainScreenUiTest {
                 timestamp = System.currentTimeMillis() - 1000,
                 appPackage = "com.example.app",
                 appName = "FailApp",
-                title = "Сбой",
-                text = "Ошибка соединения",
+                title = "Crash",
+                text = "Connection error",
                 success = false,
                 httpCode = 0
             )
@@ -141,40 +145,40 @@ class MainScreenUiTest {
                 timestamp = System.currentTimeMillis(),
                 appPackage = "org.telegram.messenger",
                 appName = "Telegram",
-                title = "Сообщение",
-                text = "Привет!",
+                title = "Message",
+                text = "Hello!",
                 success = true,
                 httpCode = 200,
                 classifyStatus = "dismiss"
             )
         )
 
-        composeRule.onNodeWithText("История").performClick()
-        // В UI записи показываются от новых к старым: сверху Telegram (HTTP 200)
+        composeRule.onNodeWithText("History").performClick()
         composeRule.onNodeWithText("Telegram").assertIsDisplayed()
         composeRule.onNodeWithText("HTTP 200").assertIsDisplayed()
         // Статус классификации показывается, когда он есть
-        composeRule.onNodeWithText("Промо: смахнуто").assertIsDisplayed()
+        composeRule.onNodeWithText("Promo: swiped").assertIsDisplayed()
         composeRule.onNodeWithText("FailApp").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Очистить историю").performClick()
-        composeRule.onNodeWithText("Нет записей").assertIsDisplayed()
+        composeRule.onNodeWithText("Clear history").performClick()
+        composeRule.onNodeWithText("No records").assertIsDisplayed()
         assertTrue(prefs.getHistory().isEmpty())
     }
 
     // ---------------------------------------------------------------------
-    // Классификация промо
+    // Классификация промо (переключатель на вкладке Settings)
     // ---------------------------------------------------------------------
 
     @Test
-    fun homeSettings_classificationTogglePersists() {
+    fun settings_classificationTogglePersists() {
         // По умолчанию включено
         assertTrue(prefs.classificationEnabled)
-        composeRule.onNodeWithText("Автосмахивание промо")
+        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.onNodeWithText("Auto-swipe promos")
             .performScrollTo()
             .assertIsDisplayed()
 
-        // На Главной 3 переключателя: пересылка, ongoing, автосмахивание — берём третий
+        // На вкладке Settings 3 переключателя: forward, ongoing, auto-swipe
         composeRule.onAllNodes(isToggleable())[2]
             .performScrollTo()
             .performClick()
@@ -186,8 +190,8 @@ class MainScreenUiTest {
     // ---------------------------------------------------------------------
 
     private fun openAddRuleDialog() {
-        composeRule.onNodeWithText("Правила").performClick()
-        composeRule.onNodeWithText("Добавить правило").performClick()
-        composeRule.onNodeWithText("Добавить правило исключения").assertIsDisplayed()
+        composeRule.onNodeWithText("Exclusions").performClick()
+        composeRule.onNodeWithText("Add rule").performClick()
+        composeRule.onNodeWithText("Add exclusion rule").assertIsDisplayed()
     }
 }

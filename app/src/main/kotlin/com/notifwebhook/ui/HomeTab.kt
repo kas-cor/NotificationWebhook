@@ -31,22 +31,17 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -64,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -74,7 +70,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.notifwebhook.AppPrefs
-import com.notifwebhook.ForegroundKeepAliveService
 import com.notifwebhook.NotificationListenerService
 import com.notifwebhook.R
 import com.notifwebhook.WebhookEntry
@@ -115,9 +110,6 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
     var webhookUrl by rememberSaveable { mutableStateOf(prefs.webhookUrl) }
     var bearerToken by rememberSaveable { mutableStateOf(prefs.bearerToken) }
     var tokenVisible by rememberSaveable { mutableStateOf(false) }
-    var forwardingEnabled by remember { mutableStateOf(prefs.forwardingEnabled) }
-    var skipOngoing by remember { mutableStateOf(prefs.skipOngoing) }
-    var classificationEnabled by remember { mutableStateOf(prefs.classificationEnabled) }
     var testing by remember { mutableStateOf(false) }
     var showAccessDialog by remember { mutableStateOf(false) }
 
@@ -166,22 +158,22 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
     if (showAccessDialog) {
         AlertDialog(
             onDismissRequest = { showAccessDialog = false },
-            title = { Text("Доступ к уведомлениям") },
+            title = { Text(stringResource(R.string.grant_dialog_title)) },
             text = {
                 Text(
-                    "Откроются настройки системы.\n\n" +
-                        "Найдите «NotifWebhook» и включите переключатель.\n\n" +
-                        "После этого вернитесь в приложение."
+                    stringResource(R.string.grant_dialog_msg1) +
+                        stringResource(R.string.grant_dialog_msg2) +
+                        stringResource(R.string.grant_dialog_msg3)
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showAccessDialog = false
                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                }) { Text("Открыть настройки") }
+                }) { Text(stringResource(R.string.open_settings)) }
             },
             dismissButton = {
-                TextButton(onClick = { showAccessDialog = false }) { Text("Отмена") }
+                TextButton(onClick = { showAccessDialog = false }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
@@ -195,7 +187,7 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
     ) {
         // ===== СТАТУС =====
         SectionCard {
-            SectionHeader("СТАТУС")
+            SectionHeader(stringResource(R.string.section_status))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -209,7 +201,8 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = if (nlsEnabled) "Слушатель активен ✓" else "Слушатель неактивен",
+                    text = if (nlsEnabled) stringResource(R.string.listener_active)
+                    else stringResource(R.string.listener_inactive),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
@@ -227,8 +220,8 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                 Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (nlsEnabled) "✓ Доступ к уведомлениям есть"
-                    else "Предоставить доступ к уведомлениям"
+                    if (nlsEnabled) stringResource(R.string.grant_access_done)
+                    else stringResource(R.string.grant_access)
                 )
             }
 
@@ -236,7 +229,7 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
             Button(
                 onClick = {
                     if (isBatteryOptimizationIgnored(context)) {
-                        context.toast("Уже исключено из оптимизации")
+                        context.toast(context.getString(R.string.battery_already))
                     } else {
                         context.startActivity(
                             Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
@@ -252,21 +245,21 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                 Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (batteryExempt) "✓ Оптимизация батареи отключена"
-                    else "⚠ Отключить оптимизацию батареи"
+                    if (batteryExempt) stringResource(R.string.battery_exempt_done)
+                    else stringResource(R.string.battery_exempt)
                 )
             }
         }
 
         // ===== WEBHOOK URL =====
         SectionCard {
-            SectionHeader("WEBHOOK URL")
+            SectionHeader(stringResource(R.string.section_webhook))
 
             OutlinedTextField(
                 value = webhookUrl,
                 onValueChange = { webhookUrl = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("https://example.com/webhook") },
+                label = { Text(stringResource(R.string.hint_url)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
             )
@@ -276,7 +269,7 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                 value = bearerToken,
                 onValueChange = { bearerToken = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Bearer token (опционально)") },
+                label = { Text(stringResource(R.string.hint_token)) },
                 singleLine = true,
                 visualTransformation = if (tokenVisible) VisualTransformation.None
                 else PasswordVisualTransformation(),
@@ -284,7 +277,8 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                     IconButton(onClick = { tokenVisible = !tokenVisible }) {
                         Icon(
                             if (tokenVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = if (tokenVisible) "Скрыть токен" else "Показать токен"
+                            contentDescription = if (tokenVisible) stringResource(R.string.hide_token)
+                            else stringResource(R.string.show_token)
                         )
                     }
                 }
@@ -296,12 +290,12 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                     onClick = {
                         val url = webhookUrl.trim()
                         if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                            context.toast("URL должен начинаться с http:// или https://")
+                            context.toast(context.getString(R.string.url_invalid))
                             return@Button
                         }
                         prefs.webhookUrl = url
                         prefs.bearerToken = bearerToken.trim()
-                        context.toast("✓ URL и токен сохранены")
+                        context.toast(context.getString(R.string.url_saved))
                     },
                     modifier = Modifier
                         .weight(1f)
@@ -309,14 +303,14 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                 ) {
                     Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Сохранить")
+                    Text(stringResource(R.string.save))
                 }
 
                 Button(
                     onClick = {
                         val url = prefs.webhookUrl
                         if (url.isBlank()) {
-                            context.toast("Сначала введите и сохраните webhook URL")
+                            context.toast(context.getString(R.string.url_required))
                             return@Button
                         }
                         testing = true
@@ -327,12 +321,17 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                                 onSuccess = { code ->
                                     val success = code in 200..299
                                     prefs.addHistoryEntry(testEntry(success, code, null))
-                                    if (success) context.toast("✓ Успешно! HTTP $code", long = true)
-                                    else context.toast("✗ HTTP ошибка: $code", long = true)
+                                    if (success) context.toast(
+                                        context.getString(R.string.test_success, code), long = true
+                                    ) else context.toast(
+                                        context.getString(R.string.test_http_error, code), long = true
+                                    )
                                 },
                                 onFailure = { e ->
                                     prefs.addHistoryEntry(testEntry(false, 0, e.message))
-                                    context.toast("✗ Ошибка: ${e.message}", long = true)
+                                    context.toast(
+                                        context.getString(R.string.test_error, e.message ?: ""), long = true
+                                    )
                                 }
                             )
                         }
@@ -344,136 +343,14 @@ fun HomeTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (testing) "Отправка..." else "Тест POST")
+                    Text(if (testing) stringResource(R.string.sending) else stringResource(R.string.test_post))
                 }
             }
         }
 
-        // ===== НАСТРОЙКИ =====
-        SectionCard {
-            SectionHeader("НАСТРОЙКИ")
-
-            SettingsRow(
-                icon = {
-                    Icon(
-                        Icons.Filled.Notifications,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                },
-                title = "Пересылать уведомления"
-            ) {
-                Switch(
-                    checked = forwardingEnabled,
-                    onCheckedChange = { checked ->
-                        if (checked && !nlsEnabled) {
-                            forwardingEnabled = false
-                            context.toast(
-                                "Сначала предоставьте доступ к уведомлениям",
-                                long = true
-                            )
-                        } else {
-                            forwardingEnabled = checked
-                            prefs.forwardingEnabled = checked
-                            if (checked) {
-                                ForegroundKeepAliveService.start(context)
-                            } else {
-                                ForegroundKeepAliveService.stop(context)
-                            }
-                        }
-                    }
-                )
-            }
-
-            HorizontalDivider(
-                modifier = Modifier.padding(start = 36.dp, top = 4.dp, bottom = 4.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
-
-            SettingsRow(
-                icon = {
-                    Icon(
-                        Icons.Filled.Stop,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.tertiary
-                    )
-                },
-                title = "Пропускать ongoing",
-                subtitle = "Музыка, навигация, системные"
-            ) {
-                Switch(
-                    checked = skipOngoing,
-                    onCheckedChange = { checked ->
-                        skipOngoing = checked
-                        prefs.skipOngoing = checked
-                    }
-                )
-            }
-
-            HorizontalDivider(
-                modifier = Modifier.padding(start = 36.dp, top = 4.dp, bottom = 4.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
-
-            SettingsRow(
-                icon = {
-                    Icon(
-                        Icons.Filled.CleaningServices,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                },
-                title = "Автосмахивание промо",
-                subtitle = "Классифицировать и смахивать акции"
-            ) {
-                Switch(
-                    checked = classificationEnabled,
-                    onCheckedChange = { checked ->
-                        classificationEnabled = checked
-                        prefs.classificationEnabled = checked
-                    }
-                )
-            }
-        }
+        // ===== НАСТРОЙКИ переехали на отдельную вкладку «Настройки» =====
 
         Spacer(Modifier.height(8.dp))
-    }
-}
-
-/** Ряд настройки с иконкой, текстом и переключателем справа (высота 56dp как раньше). */
-@Composable
-private fun SettingsRow(
-    icon: @Composable () -> Unit,
-    title: String,
-    subtitle: String? = null,
-    trailing: @Composable () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(modifier = Modifier.width(36.dp), contentAlignment = Alignment.CenterStart) { icon() }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 15.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        trailing()
     }
 }
 
