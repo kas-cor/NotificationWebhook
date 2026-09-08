@@ -79,6 +79,10 @@
     <string name="field_appname_opt">Имя приложения (app_name)</string>
     <string name="field_pkg_opt">Пакет (app_package)</string>
     <string name="delete_rule">Удалить правило</string>
+    <string name="exclude_title">Исключить из пересылки</string>
+    <string name="exclude_create">Создать правило</string>
+    <string name="exclude_field_empty">Поле пустое, правило не создано</string>
+    <string name="exclude_desc">Выберите поле и значение из записи для исключения</string>
 
     <!-- Настройки -->
     <string name="section_settings">НАСТРОЙКИ</string>
@@ -89,10 +93,12 @@
     <string name="settings_promo_sub">Классифицировать и смахивать акции</string>
     <string name="access_required_first">Сначала предоставьте доступ к уведомлениям</string>
     <string name="section_language">ЛОКАЛИЗАЦИЯ</string>
+    <string name="lang_system_label">Язык</string>
     <string name="lang_system">Язык системы</string>
     <string name="lang_ru">Русский</string>
     <string name="lang_en">Английский</string>
     <string name="section_theme">ТЕМА</string>
+    <string name="theme_label">Тема</string>
     <string name="theme_system">Системная</string>
     <string name="theme_light">Светлая</string>
     <string name="theme_dark">Тёмная</string>

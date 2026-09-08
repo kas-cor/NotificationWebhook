@@ -79,6 +79,10 @@
     <string name="field_appname_opt">App name (app_name)</string>
     <string name="field_pkg_opt">Package (app_package)</string>
     <string name="delete_rule">Delete rule</string>
+    <string name="exclude_title">Exclude from forwarding</string>
+    <string name="exclude_create">Create rule</string>
+    <string name="exclude_field_empty">Field is empty, rule not created</string>
+    <string name="exclude_desc">Choose a field and value from this entry to exclude</string>
 
     <!-- Settings -->
     <string name="section_settings">SETTINGS</string>
@@ -89,10 +93,12 @@
     <string name="settings_promo_sub">Classify and swipe deals</string>
     <string name="access_required_first">Provide notification access first</string>
     <string name="section_language">LANGUAGE</string>
+    <string name="lang_system_label">Language</string>
     <string name="lang_system">System default</string>
     <string name="lang_ru">Russian</string>
     <string name="lang_en">English</string>
     <string name="section_theme">THEME</string>
+    <string name="theme_label">Theme</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
