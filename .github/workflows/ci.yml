@@ -221,7 +221,8 @@ jobs:
             CHANGELOG="- Первый релиз"
           fi
 
-          NOTES=$(cat <<EOF
+          # Записываем notes в файл (без %0A-экранирования) — сохраняем переносы строк как есть
+          cat > /tmp/release_notes.md <<EOF
           ## NotifWebhook v${VERSION}
 
           ### Что нового
@@ -234,19 +235,17 @@ jobs:
           4. Отключите оптимизацию батареи
           5. Введите webhook URL и нажмите Сохранить
           EOF
-          )
-          NOTES="${NOTES//'%'/'%25'}"
-          NOTES="${NOTES//$'\n'/'%0A'}"
-          NOTES="${NOTES//$'\r'/'%0D'}"
-          echo "body=$NOTES" >> "$GITHUB_OUTPUT"
+          echo "notes_file=/tmp/release_notes.md" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         if: steps.check_apk.outputs.exists == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body: ${{ steps.notes.outputs.body }}
-          files: ${{ steps.check_apk.outputs.apk_path }}
-          draft: false
-          prerelease: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK_FILE="${{ steps.check_apk.outputs.apk_path }}"
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --notes-file "${{ steps.notes.outputs.notes_file }}" \
+            "$APK_FILE"
+
