@@ -1,6 +1,7 @@
 package com.notifwebhook.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,14 +14,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notifwebhook.AppPrefs
+import com.notifwebhook.ExclusionRule
 import com.notifwebhook.R
 import com.notifwebhook.WebhookEntry
 import java.text.SimpleDateFormat
@@ -48,6 +55,22 @@ fun HistoryTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
     var history by remember { mutableStateOf(prefs.getHistory()) }
 
     val successCount = history.count { it.success }
+
+    // Запись истории, для которой открыт диалог «Исключить из пересылки»
+    var excludeEntry by remember { mutableStateOf<WebhookEntry?>(null) }
+    val ruleAddedMsg = stringResource(R.string.rule_added)
+
+    excludeEntry?.let { entry ->
+        ExcludeFromHistoryDialog(
+            entry = entry,
+            onDismiss = { excludeEntry = null },
+            onCreate = { field, pattern ->
+                prefs.addExclusionRule(ExclusionRule(field = field, pattern = pattern))
+                context.toast(ruleAddedMsg)
+                excludeEntry = null
+            }
+        )
+    }
 
     ListTabCard(modifier = modifier.padding(16.dp)) {
         item(key = "header") {
@@ -95,14 +118,85 @@ fun HistoryTab(prefs: AppPrefs, modifier: Modifier = Modifier) {
         }
 
         items(history.reversed()) { entry ->
-            HistoryRow(entry)
+            HistoryRow(entry, onExclude = { excludeEntry = entry })
         }
     }
 }
 
+/** Диалог «Исключить из пересылки»: выбираем поле из записи → создаём правило. */
+@Composable
+private fun ExcludeFromHistoryDialog(
+    entry: WebhookEntry,
+    onDismiss: () -> Unit,
+    onCreate: (field: String, pattern: String) -> Unit
+) {
+    val fieldLabels = listOf(
+        R.string.field_title_opt,
+        R.string.field_text_opt,
+        R.string.field_appname_opt,
+        R.string.field_pkg_opt
+    )
+    val fieldKeys = listOf("title", "text", "app_name", "app_package")
+    val fieldValues = listOf(entry.title, entry.text, entry.appName, entry.appPackage)
+
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val fieldEmptyMsg = stringResource(R.string.exclude_field_empty)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.exclude_title)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.exclude_desc),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                fieldLabels.forEachIndexed { i, labelRes ->
+                    val value = fieldValues[i].take(40)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedIndex = i }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.RadioButton(
+                            selected = selectedIndex == i,
+                            onClick = { selectedIndex = i }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(labelRes) + " → $value",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val pattern = fieldValues[selectedIndex]
+                if (pattern.isBlank()) {
+                    context.toast(fieldEmptyMsg)
+                } else {
+                    onCreate(fieldKeys[selectedIndex], pattern)
+                }
+            }) { Text(stringResource(R.string.exclude_create)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
+}
+
 /** Строка записи истории. */
 @Composable
-private fun HistoryRow(entry: WebhookEntry) {
+private fun HistoryRow(entry: WebhookEntry, onExclude: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -133,6 +227,16 @@ private fun HistoryRow(entry: WebhookEntry) {
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            IconButton(
+                onClick = onExclude,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = stringResource(R.string.exclude_title),
+                    tint = MaterialTheme.colorScheme.tertiary
+                )
+            }
         }
 
         Column(modifier = Modifier.padding(start = 20.dp)) {
