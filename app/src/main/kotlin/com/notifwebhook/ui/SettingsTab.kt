@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,15 +20,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Android
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -146,7 +153,7 @@ fun SettingsTab(
             SectionHeader(stringResource(R.string.section_settings))
 
             SettingSwitchRow(
-                icon = { Icon(Icons.Filled.Android, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                icon = { Icon(Icons.Filled.Notifications, contentDescription = null, modifier = Modifier.size(22.dp)) },
                 title = stringResource(R.string.settings_forward),
                 subtitle = null,
                 checked = forwardingEnabled,
@@ -166,7 +173,7 @@ fun SettingsTab(
             )
 
             SettingSwitchRow(
-                icon = { Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                icon = { Icon(Icons.Filled.SkipNext, contentDescription = null, modifier = Modifier.size(22.dp)) },
                 title = stringResource(R.string.settings_ongoing),
                 subtitle = stringResource(R.string.settings_ongoing_sub),
                 checked = skipOngoing,
@@ -177,7 +184,7 @@ fun SettingsTab(
             )
 
             SettingSwitchRow(
-                icon = { Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                icon = { Icon(Icons.Filled.CleaningServices, contentDescription = null, modifier = Modifier.size(22.dp)) },
                 title = stringResource(R.string.settings_promo),
                 subtitle = stringResource(R.string.settings_promo_sub),
                 checked = classificationEnabled,
@@ -197,13 +204,14 @@ fun SettingsTab(
                 "ru" to stringResource(R.string.lang_ru),
                 "en" to stringResource(R.string.lang_en)
             )
-            locales.forEach { (value, label) ->
-                RadioSelectRow(
-                    label = label,
-                    selected = locale == value,
-                    onClick = { onLocaleChange(value) }
-                )
-            }
+            val currentLocale = locales.firstOrNull { it.first == locale }?.second
+                ?: stringResource(R.string.lang_system)
+            DropdownSettingRow(
+                label = stringResource(R.string.lang_system_label),
+                selectedLabel = currentLocale,
+                icon = { Icon(Icons.Filled.Language, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                options = locales
+            ) { onLocaleChange(it) }
         }
 
         // ===================== ТЕМА =====================
@@ -215,13 +223,14 @@ fun SettingsTab(
                 "light" to stringResource(R.string.theme_light),
                 "dark" to stringResource(R.string.theme_dark)
             )
-            themes.forEach { (value, label) ->
-                RadioSelectRow(
-                    label = label,
-                    selected = themeMode == value,
-                    onClick = { onThemeChange(value) }
-                )
-            }
+            val currentTheme = themes.firstOrNull { it.first == themeMode }?.second
+                ?: stringResource(R.string.theme_system)
+            DropdownSettingRow(
+                label = stringResource(R.string.theme_label),
+                selectedLabel = currentTheme,
+                icon = { Icon(Icons.Filled.Palette, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                options = themes
+            ) { onThemeChange(it) }
         }
 
         // ===================== О ПРИЛОЖЕНИИ =====================
@@ -243,79 +252,149 @@ fun SettingsTab(
 
             Spacer(Modifier.height(12.dp))
 
-            // --- Проверка обновлений ---
-            Button(
-                onClick = { startUpdateCheck() },
+            // --- Проверка обновлений (текст-строка вместо кнопки) ---
+            TextActionRow(
+                icon = { Icon(Icons.Filled.SystemUpdate, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                title = when (updateState.phase) {
+                    UpdatePhase.CHECKING -> stringResource(R.string.checking_updates)
+                    else -> stringResource(R.string.check_updates)
+                },
                 enabled = updateState.phase != UpdatePhase.CHECKING,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-            ) {
-                if (updateState.phase == UpdatePhase.CHECKING) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.checking_updates))
-                } else {
-                    Text(stringResource(R.string.check_updates))
-                }
-            }
+                onClick = { startUpdateCheck() }
+            )
 
             when (updateState.phase) {
                 UpdatePhase.AVAILABLE -> {
-                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = stringResource(R.string.update_available, updateState.version.orEmpty()),
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(vertical = 2.dp)
+                        modifier = Modifier.padding(start = 36.dp, top = 2.dp, bottom = 2.dp)
                     )
-                    OutlinedButton(
+                    // Скачать — текстовая строка
+                    TextActionRow(
+                        icon = { Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                        title = stringResource(R.string.download),
                         onClick = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_RELEASES_URL))
-                            )
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                    ) { Text(stringResource(R.string.download)) }
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_RELEASES_URL)))
+                        }
+                    )
                 }
                 UpdatePhase.UP_TO_DATE -> {
-                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = stringResource(R.string.up_to_date),
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 2.dp)
+                        modifier = Modifier.padding(start = 36.dp, top = 2.dp, bottom = 2.dp)
                     )
                 }
                 UpdatePhase.ERROR -> {
-                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = stringResource(R.string.update_check_error),
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(vertical = 2.dp)
+                        modifier = Modifier.padding(start = 36.dp, top = 2.dp, bottom = 2.dp)
                     )
                 }
                 UpdatePhase.IDLE, UpdatePhase.CHECKING -> Unit
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
 
-            // --- Репозиторий GitHub ---
-            OutlinedButton(
+            // --- Репозиторий GitHub (текст-строка вместо кнопки) ---
+            TextActionRow(
+                icon = { Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                title = stringResource(R.string.github_repo),
                 onClick = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_REPO_URL)))
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-            ) { Text(stringResource(R.string.github_repo)) }
+                }
+            )
+        }
+    }
+}
+
+/** Кликабельная текстовая строка-действие с иконкой (вместо полноценной кнопки). */
+@Composable
+private fun TextActionRow(
+    icon: @Composable () -> Unit,
+    title: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = false,
+                enabled = enabled,
+                onClick = onClick,
+                role = Role.Button
+            )
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.width(36.dp), contentAlignment = Alignment.Center) { icon() }
+        Text(
+            text = title,
+            fontSize = 15.sp,
+            color = if (enabled) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Строка выпадающего списка настройки: label + текущее значение + стрелка. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DropdownSettingRow(
+    label: String,
+    selectedLabel: String,
+    icon: @Composable () -> Unit,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.width(36.dp), contentAlignment = Alignment.Center) { icon() }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = selectedLabel,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+        }
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { (value, optLabel) ->
+                DropdownMenuItem(
+                    text = { Text(optLabel) },
+                    onClick = {
+                        onSelect(value)
+                        expanded = false
+                    }
+                )
+            }
         }
     }
 }
@@ -364,34 +443,5 @@ private fun SettingSwitchRow(
             }
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-/** Строка выбора с RadioButton справа, кликабельная по всей ширине. */
-@Composable
-private fun RadioSelectRow(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(
-                selected = selected,
-                onClick = onClick,
-                role = Role.RadioButton
-            )
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            fontSize = 15.sp,
-            color = if (selected) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f)
-        )
-        RadioButton(selected = selected, onClick = null)
     }
 }
