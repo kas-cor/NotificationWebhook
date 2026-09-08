@@ -25,6 +25,7 @@ An Android app that intercepts notifications from other apps via `NotificationLi
 - 🌐 **Localization** — system / Russian / English (persisted, applies on Activity recreate)
 - 🎨 **Theme override** — system / light / dark (reactive, no restart)
 - 🧹 **Auto-swipe promos** — if the server classifies a notification as promo/deal, the app swipes it away (clean notification shade)
+- ➕ **Create rule from history** — each history row has a "+" to turn its sender into an exclusion rule in one tap
 
 ### Auto-swipe promos (agent classification)
 
@@ -150,6 +151,8 @@ Xiaomi's security system aggressively blocks background services. Additional ste
 The app stores the last **50 webhook sends** locally. Each record includes app, title/text, success/failure, HTTP code, timestamp, and optional classification status.
 
 Classification status shown in history: `dismiss`, `keep`, `pending`, `error`, `disabled`, or other.
+
+Each history row has a **"+"** action — it opens an **"Exclude from forwarding"** dialog to instantly create an exclusion rule from the entry's `title` / `text` / `app_name` / `app_package`.
 
 ### Exclusion Rules
 

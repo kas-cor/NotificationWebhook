@@ -70,8 +70,8 @@ MainActivity  ← Jetpack Compose (setContent)
 | `ui/MainScreen.kt` | Scaffold + bottom `NavigationBar` (4 tabs: `MainTab` enum: `Home`, `Exclusions`, `History`, `Settings`). Labels from `stringResource(tab.labelRes)` |
 | `ui/HomeTab.kt` | Status (NLS connected/lifecycle), notification access, battery optimization, webhook URL + Bearer token, Test POST |
 | `ui/ExclusionsTab.kt` | Installed non-system apps with icons + checkboxes (allowed apps set); exclusion rules list + `AddRuleDialog` (ExposedDropdownMenu for field + pattern input) |
-| `ui/HistoryTab.kt` | History rows (app, title/text, HTTP code, time) + promo classification status label when present; clear button |
-| `ui/SettingsTab.kt` | Three toggles (forward/ongoing/promo), locale radio group, theme radio group, about card with version (`BuildConfig.VERSION_NAME`), GitHub update check (`GET /repos/.../releases/latest`), repo link |
+| `ui/HistoryTab.kt` | History rows (app, title/text, HTTP code, time) + promo classification status label when present; clear button; per-row "+" opens "Exclude from forwarding" dialog to create an exclusion rule from the entry's title/text/app/app package |
+| `ui/SettingsTab.kt` | Three toggles (forward/ongoing/promo), locale + theme **dropdowns** (system/ru/en, system/light/dark), about card with version (`BuildConfig.VERSION_NAME`), GitHub update check (`GET /repos/.../releases/latest`), repo link — all actions are text rows |
 | `ui/Components.kt` | Shared: `SectionCard`, `SectionHeader`, `ListTabCard`, toast extension |
 | `NotificationListenerService.kt` | Core: intercept, dedup, resolveTitle/resolveText, JSON, HTTP POST |
 | `ForegroundKeepAliveService.kt` | Foreground service to keep process alive (specialUse, API 34) |
@@ -230,6 +230,8 @@ git tag v1.1 && git push origin v1.1
 ## Webhook Send History
 
 The app stores the last **50 webhook sends** locally. Each record contains app, title/text, result (success/error), HTTP code, and timestamp.
+
+Each history row has a **"+"** action that opens an **"Exclude from forwarding"** dialog — pick one of the entry's fields (`title`/`text`/`app_name`/`app_package`) and a new exclusion rule is created with that value as the pattern (one tap to filter out a sender).
 
 ## Exclusion Rules
 
