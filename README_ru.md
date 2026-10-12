@@ -9,6 +9,8 @@
 [![Coverage](https://img.shields.io/badge/coverage-63%25-A3D936?logo=codecov&logoColor=white&label=JaCoCo)](https://github.com/kas-cor/NotificationWebhook/actions?query=artifact%3Acoverage-report)
 
 > 🇬🇧 [English version](README.md)
+>
+> 🌐 [Лендинг](website/index.html) · [Инструкция по размещению](docs/DEPLOYMENT.md)
 
 Приложение перехватывает уведомления других приложений через `NotificationListenerService`
 и отправляет их на указанный webhook как JSON (HTTP POST).
