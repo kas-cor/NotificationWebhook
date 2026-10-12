@@ -9,6 +9,8 @@
 [![Coverage](https://img.shields.io/badge/coverage-63%25-A3D936?logo=codecov&logoColor=white&label=JaCoCo)](https://github.com/kas-cor/NotificationWebhook/actions?query=artifact%3Acoverage-report)
 
 > 🌐 [Русская версия](README_ru.md)
+>
+> 🌐 [Landing page](website/index.html) · [Hosting instructions](docs/DEPLOYMENT.md)
 
 An Android app that intercepts notifications from other apps via `NotificationListenerService` and forwards them to a specified webhook as JSON (HTTP POST).
 
