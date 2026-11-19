@@ -10,7 +10,7 @@
 
 > 🇬🇧 [English version](README.md)
 >
-> 🌐 [Лендинг](website/index.html) · [Инструкция по размещению](docs/DEPLOYMENT.md)
+> 🌐 [Лендинг](docs/index.html)
 
 Приложение перехватывает уведомления других приложений через `NotificationListenerService`
 и отправляет их на указанный webhook как JSON (HTTP POST).

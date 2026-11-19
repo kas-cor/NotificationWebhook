@@ -10,7 +10,7 @@
 
 > 🌐 [Русская версия](README_ru.md)
 >
-> 🌐 [Landing page](website/index.html) · [Hosting instructions](docs/DEPLOYMENT.md)
+> 🌐 [Landing page](docs/index.html)
 
 An Android app that intercepts notifications from other apps via `NotificationListenerService` and forwards them to a specified webhook as JSON (HTTP POST).
 
