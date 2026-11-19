@@ -10,7 +10,7 @@
 
 > 🇬🇧 [English version](README.md)
 >
-> 🌐 [Лендинг](docs/index.html)
+> 🌐 [Лендинг](https://kas-cor.github.io/NotificationWebhook/)
 
 Приложение перехватывает уведомления других приложений через `NotificationListenerService`
 и отправляет их на указанный webhook как JSON (HTTP POST).

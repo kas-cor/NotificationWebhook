@@ -10,7 +10,7 @@
 
 > 🌐 [Русская версия](README_ru.md)
 >
-> 🌐 [Landing page](docs/index.html)
+> 🌐 [Landing page](https://kas-cor.github.io/NotificationWebhook/)
 
 An Android app that intercepts notifications from other apps via `NotificationListenerService` and forwards them to a specified webhook as JSON (HTTP POST).
 
