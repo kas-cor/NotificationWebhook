@@ -6,8 +6,10 @@ set -euo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SERVICE_PATH="/etc/systemd/system/notif-webhook.service"
 DB_DIR="${NOTIF_WEBHOOK_DB_DIR:-$HOME/notifwebhook_data}"
 PORT="${NOTIF_WEBHOOK_PORT:-8790}"
+BIND="${NOTIF_WEBHOOK_BIND:-127.0.0.1}"
 VENV_PYTHON="${NOTIF_WEBHOOK_PYTHON:-python3}"
 
 # ── 1. Create DB dir ──────────────────────────────────────────────────────────
@@ -16,6 +18,14 @@ echo "✓ DB directory: $DB_DIR"
 
 # ── 2. Generate auth token ────────────────────────────────────────────────────
 ENV_FILE="${NOTIF_WEBHOOK_ENV_FILE:-$SCRIPT_DIR/.env}"
+# If the script moved, keep using the token file the installed unit already
+# references instead of generating a new token and breaking every client.
+if [ ! -f "$ENV_FILE" ]; then
+    OLD_ENV_FILE="$(sed -n 's/^EnvironmentFile=//p' "$SERVICE_PATH" 2>/dev/null | tail -1)"
+    if [ -n "$OLD_ENV_FILE" ] && [ -f "$OLD_ENV_FILE" ]; then
+        ENV_FILE="$OLD_ENV_FILE"
+    fi
+fi
 
 if [ -z "${NOTIF_WEBHOOK_AUTH_TOKEN:-}" ]; then
     if [ -f "$ENV_FILE" ]; then
@@ -41,7 +51,6 @@ fi
 
 # ── 3. Install & start systemd service ────────────────────────────────────────
 SERVICE_NAME="notif-webhook.service"
-SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 
 sudo tee "$SERVICE_PATH" > /dev/null <<SERVICEEOF
 [Unit]
@@ -56,10 +65,10 @@ Group=$USER
 WorkingDirectory=$SCRIPT_DIR
 ExecStart=$VENV_PYTHON $SCRIPT_DIR/server.py
 Environment=NOTIF_WEBHOOK_PORT=$PORT
-Environment=NOTIF_WEBHOOK_BIND=127.0.0.1
+Environment=NOTIF_WEBHOOK_BIND=$BIND
 Environment=NOTIF_WEBHOOK_DB_DIR=$DB_DIR
 EnvironmentFile=$ENV_FILE
-Restart=on-failure
+Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal

@@ -211,8 +211,8 @@ class AppPrefs internal constructor(private val sp: SharedPreferences) {
 
         fun get(context: Context): AppPrefs =
             instance ?: synchronized(this) {
-                instance ?: AppPrefs(
-                    runCatching {
+                instance ?: run {
+                    val encrypted = runCatching {
                         val masterKey = MasterKey.Builder(context.applicationContext)
                             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                             .build()
@@ -223,11 +223,28 @@ class AppPrefs internal constructor(private val sp: SharedPreferences) {
                             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
                         )
-                    }.getOrElse {
+                    }.getOrNull()
+
+                    val prefs = if (encrypted != null) {
+                        // Older builds stored the URL/token as plaintext in the same
+                        // XML. Remove those copies only when the encrypted value
+                        // exists, so an encrypted-prefs user does not leave a stale
+                        // Bearer token readable on disk.
+                        runCatching {
+                            val legacy = context.applicationContext
+                                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                            val editor = legacy.edit()
+                            if (encrypted.contains(KEY_WEBHOOK_URL)) editor.remove(KEY_WEBHOOK_URL)
+                            if (encrypted.contains(KEY_BEARER_TOKEN)) editor.remove(KEY_BEARER_TOKEN)
+                            editor.apply()
+                        }
+                        encrypted
+                    } else {
                         context.applicationContext
                             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     }
-                ).also { instance = it }
+                    AppPrefs(prefs).also { instance = it }
+                }
             }
     }
 }

@@ -105,7 +105,7 @@ MainActivity  ← Jetpack Compose (setContent)
 
 ## Tests
 
-**44 tests** for `NotificationListenerServiceTest`:
+**45 tests** for `NotificationListenerServiceTest`:
 
 | Group | Tests | What's tested |
 |---|---|---|
@@ -115,6 +115,7 @@ MainActivity  ← Jetpack Compose (setContent)
 | `shouldSkipByRules` | 10 | Exclusion rules: substring match, case-insensitivity, unknown field |
 | `parseClassificationId` | 4 | NotificationListenerService classification parsing |
 | `classificationUrl` | 4 | Preserves reverse-proxy path prefix, strips `/webhook`, handles query/trailing slash |
+| `buildPayload` | 1 | `timestamp_iso` is formatted in UTC |
 | `isDismissAction` | 1 | Action detection |
 
 **17 tests** for `AppPrefsTest` (`WebhookEntry`/`ExclusionRule` JSON roundtrip, history limit 50, exclusion rules CRUD; `classifyStatus` roundtrip, null handling for absent field, unique id generation).
@@ -282,7 +283,7 @@ If classification is enabled and the server returns a `dismiss` verdict, the cor
 
 - **Language:** Kotlin, JVM target 17
 - **Coroutines:** `Dispatchers.IO` for network, `Dispatchers.Main` for UI
-- **SharedPreferences:** Thread-safe singleton via `AppPrefs`; encrypted prefs via `EncryptedSharedPreferences` (AES256-GCM), fallback to plain `SharedPreferences` if master key init fails
+- **SharedPreferences:** Thread-safe singleton via `AppPrefs`; encrypted prefs via `EncryptedSharedPreferences` (AES256-GCM), fallback to plain `SharedPreferences` if master key init fails. When encrypted prefs are active, legacy plaintext `webhook_url`/`bearer_token` keys are removed if encrypted copies exist
 - **Dedup:** `LinkedHashMap`, 3s window, max 50 entries
 - **Network:** Standard `HttpURLConnection`, synchronous calls in IO dispatcher. If Bearer token is set, adds `Authorization: Bearer <token>` header
 - **UI:** Jetpack Compose + Material3. Single `MainScreen` with bottom `NavigationBar`, 4 tabs (`MainTab` enum). Bottom nav labels come from `R.string`. Tabs:
@@ -295,7 +296,7 @@ If classification is enabled and the server returns a `dismiss` verdict, the cor
 - **BuildConfig:** enabled for `VERSION_NAME`, used in Settings about card
 - **NLS status check:** read via `Settings.Secure.enabled_notification_listeners` (reliable on API 34); live updates via broadcast receiver in HomeTab
 - **Logging:** Tag `NLS_Webhook` for ListenerService, `KeepAliveService` for foreground service, `BootReceiver` for receiver
-- **Testing:** JUnit + Mockito (inline mock maker), 61 unit tests + 5 Compose UI tests (Robolectric, debug variant only)
+- **Testing:** JUnit + Mockito (inline mock maker), 62 unit tests + 5 Compose UI tests (Robolectric, debug variant only)
 - **CI:** lint → test → JaCoCo → assembleDebug → assembleRelease → artifacts
 - **APK signing:** via secrets `KEYSTORE_BASE64` + `KEYSTORE_PASSWORD`
 

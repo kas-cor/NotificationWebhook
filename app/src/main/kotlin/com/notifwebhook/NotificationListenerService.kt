@@ -25,6 +25,7 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * NotificationListenerService — ядро приложения.
@@ -197,6 +198,7 @@ class NotificationListenerService : NotificationListenerService() {
      * Извлекаем текст уведомления с приоритетом:
      * MessagingStyle.messages → bigText → textLines → text → infoText → summaryText → tickerText
      */
+    @Suppress("DEPRECATION") // Bundle.get is needed: typed getters throw on Parcelable[] messages
     fun resolveText(notification: Notification, extras: Bundle): String {
         // 1. MessagingStyle (чат/мессенджеры: Telegram, WhatsApp и т.д.)
         // Android 14: некоторые приложения кладут EXTRA_MESSAGES как Parcelable[],
@@ -267,6 +269,7 @@ class NotificationListenerService : NotificationListenerService() {
     val Notification.isOngoing: Boolean
         get() = (flags and Notification.FLAG_ONGOING_EVENT) != 0
 
+    @Suppress("DEPRECATION") // Notification.priority is deprecated but still the reported value
     fun buildPayload(
         sbn: StatusBarNotification,
         notification: Notification,
@@ -276,8 +279,9 @@ class NotificationListenerService : NotificationListenerService() {
         text: String,
         subText: String
     ): String {
-        val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
-            .format(Date(sbn.postTime))
+        val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date(sbn.postTime))
 
         return JSONObject().apply {
             put("app_package", packageName)
@@ -374,7 +378,9 @@ class NotificationListenerService : NotificationListenerService() {
         var attempt = 0
         var hadError = false
         while (attempt < CLASSIFICATION_MAX_POLLS) {
-            delay(CLASSIFICATION_POLL_DELAY_MS)
+            // Fast polls for the first 30s (gate decisions are quick), then a
+            // slower tail so the total window matches the server's 5-minute TTL.
+            delay(if (attempt < CLASSIFICATION_FAST_POLLS) CLASSIFICATION_FAST_DELAY_MS else CLASSIFICATION_SLOW_DELAY_MS)
             attempt++
             val status = fetchClassificationStatus(webhookUrl, classificationId)
             if (status == null) {
@@ -392,7 +398,7 @@ class NotificationListenerService : NotificationListenerService() {
                     Log.d(tag, "Agent verdict: keep — notification stays")
                     return "keep"
                 }
-                else -> Log.d(tag, "Classification still pending (${status ?: "unknown"}), attempt $attempt")
+                else -> Log.d(tag, "Classification still pending ($status), attempt $attempt")
             }
         }
         Log.d(tag, "Classification polling exhausted; fail-open — notification stays")
@@ -483,9 +489,12 @@ class NotificationListenerService : NotificationListenerService() {
         private const val MAX_RETRIES = 3
         private val RETRY_DELAYS_MS = longArrayOf(1_000L, 2_000L)
 
-        // Classification polling: how long to keep asking the server for a verdict.
-        private const val CLASSIFICATION_MAX_POLLS = 10
-        private const val CLASSIFICATION_POLL_DELAY_MS = 3_000L
+        // Classification polling: keep asking for the whole server-side TTL
+        // (300s): 10 fast polls * 3s + 27 slow polls * 10s = 300s.
+        private const val CLASSIFICATION_MAX_POLLS = 37
+        private const val CLASSIFICATION_FAST_POLLS = 10
+        private const val CLASSIFICATION_FAST_DELAY_MS = 3_000L
+        private const val CLASSIFICATION_SLOW_DELAY_MS = 10_000L
 
         /** Result of the POST send, including the response body for parsing. */
         private data class WebhookSend(
@@ -525,7 +534,7 @@ class NotificationListenerService : NotificationListenerService() {
         internal fun parseClassificationId(responseBody: String?): String? {
             if (responseBody.isNullOrBlank()) return null
             return try {
-                JSONObject(responseBody).optString("classification_id", null)
+                JSONObject(responseBody).optString("classification_id", "").takeIf { it.isNotBlank() }
             } catch (_: Exception) {
                 null
             }

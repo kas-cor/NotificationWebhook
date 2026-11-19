@@ -32,6 +32,12 @@ MAX_BODY_BYTES = int(os.environ.get("NOTIF_WEBHOOK_MAX_BODY_BYTES", "262144"))
 # many seconds (multiple API calls) to classify.
 CLASSIFICATION_TTL_MS = int(os.environ.get("NOTIF_WEBHOOK_CLASSIFICATION_TTL_MS", "300000"))
 
+# Classification rows are short-lived: after the TTL they are useless to the
+# client, and keeping every historical verdict makes the table grow forever.
+CLASSIFICATION_RETENTION_DAYS = int(
+    os.environ.get("NOTIF_WEBHOOK_CLASSIFICATION_RETENTION_DAYS", "7")
+)
+
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="NotifWebhook Receiver", version="1.0.0")
 
@@ -108,6 +114,24 @@ def init_db_sync():
         CREATE INDEX IF NOT EXISTS idx_class_status
         ON classifications(status)
     """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_class_created
+        ON classifications(created_at)
+    """)
+    # Startup cleanup: old pending rows are expired (fail-open keep), and rows
+    # past the classification retention window are removed.
+    now_ms = int(time.time() * 1000)
+    conn.execute(
+        """UPDATE classifications
+           SET status = 'done', action = 'keep', decided_at = ?
+           WHERE status = 'pending' AND created_at < ?""",
+        (now_ms, now_ms - CLASSIFICATION_TTL_MS),
+    )
+    if CLASSIFICATION_RETENTION_DAYS > 0:
+        conn.execute(
+            "DELETE FROM classifications WHERE created_at < ?",
+            (now_ms - CLASSIFICATION_RETENTION_DAYS * 24 * 60 * 60 * 1000,),
+        )
     conn.commit()
     conn.close()
 
@@ -224,7 +248,19 @@ async def receive_webhook(request: Request):
     if RETENTION_DAYS > 0:
         cutoff = now_ms - RETENTION_DAYS * 24 * 60 * 60 * 1000
         await db.execute("DELETE FROM notifications WHERE received_at < ?", (cutoff,))
-        await db.commit()
+    # Expire stale pending verdicts (fail-open keep) and prune classifications.
+    await db.execute(
+        """UPDATE classifications
+           SET status = 'done', action = 'keep', decided_at = ?
+           WHERE status = 'pending' AND created_at < ?""",
+        (now_ms, now_ms - CLASSIFICATION_TTL_MS),
+    )
+    if CLASSIFICATION_RETENTION_DAYS > 0:
+        await db.execute(
+            "DELETE FROM classifications WHERE created_at < ?",
+            (now_ms - CLASSIFICATION_RETENTION_DAYS * 24 * 60 * 60 * 1000,),
+        )
+    await db.commit()
     await db.close()
     return {
         "ok": True,
@@ -256,6 +292,13 @@ async def get_classification(classification_id: str, request: Request):
         if status == "pending" and (now_ms - row["created_at"]) > CLASSIFICATION_TTL_MS:
             status = "done"
             action = "keep"  # fail-open: unconfirmed stays
+            await db.execute(
+                """UPDATE classifications
+                   SET status = 'done', action = 'keep', decided_at = ?
+                   WHERE classification_id = ? AND status = 'pending'""",
+                (now_ms, classification_id),
+            )
+            await db.commit()
         return {
             "classification_id": classification_id,
             "status": status,

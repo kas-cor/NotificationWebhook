@@ -37,8 +37,10 @@
 1. Приложение отправляет уведомление на webhook (POST `/webhook`).
 2. Сервер сохраняет его, создаёт запись классификации и возвращает `classification_id`.
 3. Агент (LLM по промпту webhook) решает: промо/акция → вызывает `promo_store.py` и помечает `classification_id` как `dismiss`.
-4. Приложение через несколько секунд запрашивает `GET /classification/{id}`.
+4. Приложение опрашивает `GET /classification/{id}` до **300 с** (10 быстрых попыток по 3 с, затем 27 по 10 с).
 5. Если вердикт `dismiss` — приложение смахивает уведомление (`cancelNotification`). Если `keep`/ошибка/таймаут — уведомление остаётся (fail-open).
+
+Агентский helper `promo_store.py` живёт в Hermes-скиле, а не в этом репозитории: `~/.hermes/skills/devops/promotions-tracker/scripts/promo_store.py`. Для `--source push` он требует `--classification-id`.
 
 Эндпоинты сервера:
 
@@ -176,9 +178,9 @@ ForegroundKeepAliveService  ← START_STICKY foreground-сервис
 
 ## Тестирование
 
-Проект содержит **66 тестов** в трёх наборах:
+Проект содержит **67 тестов** в трёх наборах:
 
-- **44 unit-теста** для `NotificationListenerService` (резолвинг заголовков/текста, включая `EXTRA_MESSAGES` как `ArrayList` и `Parcelable[]`, ongoing, правила исключений, парсинг классификации и построение URL)
+- **45 unit-тестов** для `NotificationListenerService` (резолвинг заголовков/текста, включая `EXTRA_MESSAGES` как `ArrayList` и `Parcelable[]`, UTC `timestamp_iso`, ongoing, правила исключений, парсинг классификации и построение URL)
 - **17 unit-тестов** для `AppPrefs` (лимит истории 50, CRUD правил исключений, JSON roundtrip; roundtrip `classifyStatus`, обработка отсутствующего поля, генерация уникального id правила)
 - **5 Compose UI-тестов** (`MainScreenUiTest`) — переключение вкладок, валидация диалога добавления правила и персистентность переключателя классификации, запускаются на JVM через Robolectric (эмулятор не нужен)
 

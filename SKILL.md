@@ -21,10 +21,9 @@ required_commands:
   - curl
   - systemctl
 required_environment_variables:
-  - NOTIF_WEBHOOK_PORT
-  - NOTIF_WEBHOOK_BIND
-  - NOTIF_WEBHOOK_DB_DIR
   - NOTIF_WEBHOOK_AUTH_TOKEN
+# PORT/BIND/DB_DIR have defaults; AUTH_TOKEN is required when the server is
+# reachable from outside localhost.
 ---
 
 # NotifWebhook — Server-Side Integration Guide
@@ -80,8 +79,7 @@ Android notification → HTTP POST → server.py → SQLite
 
 ### 1. Install Dependencies
 ```bash
-cd server/
-pip install fastapi uvicorn aiosqlite
+python3 -m pip install -r server/requirements.txt
 ```
 
 ### 2. Configure Environment
@@ -92,21 +90,13 @@ export NOTIF_WEBHOOK_DB_DIR="$HOME/notifwebhook_data"
 export NOTIF_WEBHOOK_AUTH_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
 ```
 
-Optionally save to `.env` in the project root:
-```bash
-cat <<EOF >> .env
-NOTIF_WEBHOOK_PORT=8790
-NOTIF_WEBHOOK_BIND=127.0.0.1
-NOTIF_WEBHOOK_DB_DIR=$HOME/notifwebhook_data
-NOTIF_WEBHOOK_AUTH_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
-EOF
-```
+`server/setup.sh` writes the generated token to `server/.env` and installs a systemd unit with `EnvironmentFile=` pointing at it. A direct `python3 server/server.py` does **not** load `.env`; export the variables in the shell (as shown above) or use systemd.
 
 ### 3. Quick Test (inline)
 ```bash
 python3 server/server.py &
 sleep 2
-curl http://127.0.0.1:8790/health  # → {"status":"ok","db":"..."}
+curl http://127.0.0.1:8790/health  # → {"status":"ok"}
 ```
 
 ### 4. Production Setup (systemd)
@@ -114,7 +104,9 @@ curl http://127.0.0.1:8790/health  # → {"status":"ok","db":"..."}
 cd server/
 bash setup.sh
 ```
-`setup.sh` creates the DB directory, generates auth token, installs and starts `notif-webhook.service`.
+`setup.sh` creates the DB directory, generates the auth token in `server/.env`, installs and starts `notif-webhook.service`.
+
+By default it uses `$HOME/notifwebhook_data` as the DB directory. Override with `export NOTIF_WEBHOOK_DB_DIR=...` before running it. The server binds to `127.0.0.1` unless `NOTIF_WEBHOOK_BIND` is set.
 
 ### 5. Configure the Android App
 - **Webhook URL:** depends on how you expose the server (see section below)
@@ -149,7 +141,7 @@ Webhook URL: `https://<random>.trycloudflare.com/webhook`
 ```bash
 ngrok http http://127.0.0.1:8790
 ```
-Webhook URL: `https://<random>.ngrok.io/webhook`
+Webhook URL: `https://<random>.ngrok-free.app/webhook`
 
 #### D) Direct HTTP (LAN / VPS without HTTPS)
 Change bind to `0.0.0.0` and open the port:
@@ -159,6 +151,8 @@ sudo ufw allow 8790/tcp  # if using UFW
 ```
 Webhook URL: `http://<server-ip>:8790/webhook`
 > ⚠ No encryption — only use on trusted networks or behind a reverse proxy (nginx/Caddy) with your own TLS.
+>
+> ⚠ **Android blocks cleartext HTTP by default** (targetSdk 34): the app will reject `http://<server-ip>:8790/webhook` unless you add a network security config. For the phone use Tailscale/Cloudflare/ngrok (HTTPS), or a local reverse proxy with TLS.
 
 ### 7. Verify End-to-End
 ```bash
@@ -166,14 +160,21 @@ curl -X POST 'http://127.0.0.1:8790/webhook' \
   -H "Authorization: Bearer $NOTIF_WEBHOOK_AUTH_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"app_package":"com.test","app_name":"Test","title":"hello","text":"world"}'
-# → 200 {"ok": true, "id": 1}
+# → 200 {"ok": true, "id": <notification_id>, "classification_id": "<uuid>", "status": "pending"}
 ```
 
 ---
 
 ## 🗄 Database
 
-**Default path:** `$NOTIF_WEBHOOK_DB_DIR/notif_webhook.db` (defaults to `./data/`)
+**Default path:** `$NOTIF_WEBHOOK_DB_DIR/notif_webhook.db`.
+
+- Direct run: `./data/notif_webhook.db` relative to the current working directory.
+- `server/setup.sh`: `$HOME/notifwebhook_data/notif_webhook.db` by default.
+- `analyze.py` / `watchdog.py` use the same `NOTIF_WEBHOOK_DB_DIR` default (`./data`). Export it before running them from another directory:
+  ```bash
+  export NOTIF_WEBHOOK_DB_DIR="$HOME/notifwebhook_data"
+  ```
 
 ```sql
 notifications (
@@ -210,6 +211,8 @@ ORDER BY timestamp_ms DESC LIMIT 5;
 ## 📊 CLI Analyzer (`server/analyze.py`)
 
 Commands are run from the project root: `python3 server/analyze.py <command> [args]`
+
+The analyzer reads `NOTIF_WEBHOOK_DB_DIR` (default `./data`). If the server was installed by `setup.sh`, export `NOTIF_WEBHOOK_DB_DIR="$HOME/notifwebhook_data"` first.
 
 | Command | Description | Example |
 |---------|-------------|---------|
@@ -334,12 +337,13 @@ NotificationWebhook/
 ├── LICENSE               ← MIT
 │
 ├── app/                  ← Android client (Kotlin)
-│   └── src/main/java/com/notifwebhook/
+│   └── src/main/kotlin/com/notifwebhook/
 │       ├── MainActivity.kt
 │       ├── NotificationListenerService.kt
 │       ├── ForegroundKeepAliveService.kt
 │       ├── BootReceiver.kt
-│       └── AppPrefs.kt
+│       ├── AppPrefs.kt
+│       └── ui/           — Compose tabs (Home/Exclusions/History/Settings)
 │
 ├── server/               ← Python backend
 │   ├── server.py         — FastAPI webhook receiver
@@ -383,6 +387,22 @@ NotificationWebhook/
 
 **Text:** `MessagingStyle.messages` (chats) → `EXTRA_BIG_TEXT` → `EXTRA_TEXT_LINES` → `EXTRA_TEXT` → `EXTRA_INFO_TEXT` → `EXTRA_SUMMARY_TEXT` → `tickerText` → title
 
+`timestamp_iso` is formatted in **UTC** (the literal `Z` is correct); `timestamp_ms` is the original post time.
+
+### Auto-swipe promos (classification)
+
+The server creates a classification record for every accepted POST and returns its id:
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/webhook` | Accept a notification; response contains `classification_id` |
+| `GET` | `/classification/{id}` | `status` (`pending`/`done`) and `action` (`keep`/`dismiss`) |
+| `POST` | `/classification/{id}/dismiss` | Mark as promo (called by the agent-side helper) |
+
+The app polls for up to **300 s** (10 × 3 s fast, then 27 × 10 s); the server TTL is also 300 s. A verdict arriving later is ignored (fail-open: the notification stays). Stale `pending` rows are persisted as `done/keep`, and classification rows older than `NOTIF_WEBHOOK_CLASSIFICATION_RETENTION_DAYS` (default 7) are deleted.
+
+The agent-side helper `promo_store.py` is **not part of this repository** — it lives in the Hermes skill at `~/.hermes/skills/devops/promotions-tracker/scripts/promo_store.py` and requires `--classification-id` when `--source push`. The Android app only calls `POST /classification/{id}/dismiss` after an explicit `dismiss` verdict.
+
 ### Android 14+ (API 34) Specifics
 | Issue | Solution |
 |-------|----------|
@@ -402,7 +422,7 @@ Notifications can be filtered on the Android side before sending:
 ```bash
 ./gradlew assembleDebug                    # Debug APK
 ./gradlew assembleRelease                  # Release APK (requires signing)
-./gradlew test                             # 52 unit tests + 4 Compose UI tests (Robolectric, debug variant)
+./gradlew test                             # 62 unit tests + 5 Compose UI tests (Robolectric, debug variant)
 ./gradlew jacocoTestReport                 # Coverage report
 ```
 

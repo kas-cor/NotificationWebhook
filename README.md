@@ -36,8 +36,10 @@ Flow:
 1. The app POSTs the notification to `/webhook`.
 2. The server stores it, creates a classification record and returns a `classification_id`.
 3. The agent (LLM via the webhook prompt) decides: promo/deal → runs `promo_store.py` and marks the `classification_id` as `dismiss`.
-4. After a few seconds the app polls `GET /classification/{id}`.
+4. The app polls `GET /classification/{id}` for up to **300 s** (10 × 3 s fast, then 27 × 10 s).
 5. On `dismiss` the app swipes the notification (`cancelNotification`). On `keep`/error/timeout the notification stays (fail-open).
+
+The agent-side helper `promo_store.py` is part of the Hermes skill, not this repository: `~/.hermes/skills/devops/promotions-tracker/scripts/promo_store.py`. It requires `--classification-id` for `--source push`.
 
 Server endpoints:
 
@@ -191,9 +193,9 @@ The Exclusions tab merges app selection and exclusion rules in one screen: apps 
 
 ## Testing
 
-The project contains **66 tests** in 3 suites:
+The project contains **67 tests** in 3 suites:
 
-- **44 unit tests** for `NotificationListenerService` (title/text resolution incl. `EXTRA_MESSAGES` as both `ArrayList` and `Parcelable[]`, ongoing detection, exclusion rules, classification parsing and URL building)
+- **45 unit tests** for `NotificationListenerService` (title/text resolution incl. `EXTRA_MESSAGES` as both `ArrayList` and `Parcelable[]`, UTC `timestamp_iso`, ongoing detection, exclusion rules, classification parsing and URL building)
 - **17 unit tests** for `AppPrefs` (history limit 50, exclusion rules CRUD, JSON roundtrips; `classifyStatus` roundtrip, null handling, unique rule id generation)
 - **5 Compose UI tests** (`MainScreenUiTest`) — tab switching, add-rule dialog validation, and classification toggle persistence, run on the JVM via Robolectric (no emulator needed)
 

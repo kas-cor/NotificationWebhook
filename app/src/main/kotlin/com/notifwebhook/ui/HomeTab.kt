@@ -83,6 +83,7 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /** Проверка, включён ли NLS через Settings.Secure (надёжный способ на Android 14+). */
 private fun isNotificationAccessEnabled(context: Context): Boolean {
@@ -369,7 +370,9 @@ private suspend fun runTestPost(prefs: AppPrefs): Result<Int> {
         put("channel_id", "test")
         put(
             "timestamp_iso",
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.format(Date())
         )
         put("timestamp_ms", System.currentTimeMillis())
     }.toString()

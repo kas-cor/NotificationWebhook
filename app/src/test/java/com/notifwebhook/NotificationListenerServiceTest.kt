@@ -6,6 +6,7 @@ import android.service.notification.StatusBarNotification
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.json.JSONObject
 import org.junit.Before
 import org.junit.Test
 import org.mockito.Mockito.mock
@@ -138,6 +139,7 @@ class NotificationListenerServiceTest {
         assertEquals("Summary text", result)
     }
 
+    @Suppress("DEPRECATION")
     @Test
     fun `resolveText reads MessagingStyle messages from ArrayList`() {
         val message = mock(Bundle::class.java)
@@ -149,6 +151,7 @@ class NotificationListenerServiceTest {
         assertEquals("Hello from chat", result)
     }
 
+    @Suppress("DEPRECATION")
     @Test
     fun `resolveText reads MessagingStyle messages from Parcelable array`() {
         val first = mock(Bundle::class.java)
@@ -161,6 +164,7 @@ class NotificationListenerServiceTest {
         assertEquals("First\nSecond", result)
     }
 
+    @Suppress("DEPRECATION")
     @Test
     fun `resolveText ignores malformed EXTRA_MESSAGES`() {
         `when`(extras.get(Notification.EXTRA_MESSAGES)).thenReturn("not-a-list")
@@ -478,6 +482,22 @@ class NotificationListenerServiceTest {
             "https://example.com/classification/abc-123",
             NotificationListenerService.classificationUrl("https://example.com/", "abc-123")
         )
+    }
+
+    // -------------------------------------------------------------------------
+    // buildPayload
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `buildPayload timestamp_iso is UTC`() {
+        val sbn = createMockSbn("com.example", 1_600_000_000_000L)
+
+        val payload = JSONObject(
+            service.buildPayload(sbn, mockNotification, "com.example", "Example", "Title", "Text", "")
+        )
+
+        assertEquals("2020-09-13T12:26:40.000Z", payload.getString("timestamp_iso"))
+        assertEquals(1_600_000_000_000L, payload.getLong("timestamp_ms"))
     }
 
     // -------------------------------------------------------------------------
