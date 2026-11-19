@@ -118,6 +118,8 @@ MainActivity  ← Jetpack Compose (setContent)
 | `buildPayload` | 1 | `timestamp_iso` is formatted in UTC |
 | `isDismissAction` | 1 | Action detection |
 
+**3 tests** for `UpdateCheckTest` (release-tag URL parsing: `/releases/tag/<tag>`, query/fragment, non-release URL).
+
 **17 tests** for `AppPrefsTest` (`WebhookEntry`/`ExclusionRule` JSON roundtrip, history limit 50, exclusion rules CRUD; `classifyStatus` roundtrip, null handling for absent field, unique id generation).
 
 **5 Compose UI tests** (`MainScreenUiTest`) run on the JVM via Robolectric (no emulator):
@@ -296,7 +298,7 @@ If classification is enabled and the server returns a `dismiss` verdict, the cor
 - **BuildConfig:** enabled for `VERSION_NAME`, used in Settings about card
 - **NLS status check:** read via `Settings.Secure.enabled_notification_listeners` (reliable on API 34); live updates via broadcast receiver in HomeTab
 - **Logging:** Tag `NLS_Webhook` for ListenerService, `KeepAliveService` for foreground service, `BootReceiver` for receiver
-- **Testing:** JUnit + Mockito (inline mock maker), 62 unit tests + 5 Compose UI tests (Robolectric, debug variant only)
+- **Testing:** JUnit + Mockito (inline mock maker), 65 unit tests + 5 Compose UI tests (Robolectric, debug variant only)
 - **CI:** lint → test → JaCoCo → assembleDebug → assembleRelease → artifacts
 - **APK signing:** via secrets `KEYSTORE_BASE64` + `KEYSTORE_PASSWORD`
 

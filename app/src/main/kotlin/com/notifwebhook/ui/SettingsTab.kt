@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,12 +59,11 @@ import com.notifwebhook.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-private const val GITHUB_RELEASES_API =
-    "https://api.github.com/repos/kas-cor/NotificationWebhook/releases/latest"
+private const val GITHUB_RELEASES_LATEST =
+    "https://github.com/kas-cor/NotificationWebhook/releases/latest"
 private const val GITHUB_RELEASES_URL =
     "https://github.com/kas-cor/NotificationWebhook/releases/latest"
 private const val GITHUB_REPO_URL =
@@ -84,25 +84,44 @@ private enum class UpdatePhase { IDLE, CHECKING, AVAILABLE, UP_TO_DATE, ERROR }
 
 private data class UpdateUiState(val phase: UpdatePhase = UpdatePhase.IDLE, val version: String? = null)
 
-/** GET-запрос к GitHub API и парсинг tag_name на фоновом потоке. */
+/**
+ * GitHub redirects /releases/latest to /releases/tag/<tag>. This avoids the
+ * unauthenticated REST API, which is rate-limited per IP (a shared carrier or
+ * office NAT can exhaust 60 requests/hour) and requires a User-Agent header.
+ */
 private fun fetchLatestReleaseTag(): String? {
-    val conn = URL(GITHUB_RELEASES_API).openConnection() as HttpURLConnection
+    val conn = URL(GITHUB_RELEASES_LATEST).openConnection() as HttpURLConnection
     return try {
         conn.requestMethod = "GET"
         conn.connectTimeout = 10_000
         conn.readTimeout = 10_000
-        if (conn.responseCode == 200) {
-            val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            JSONObject(body).optString("tag_name", "").trim().ifEmpty { null }
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "NotifWebhook/${BuildConfig.VERSION_NAME}")
+        conn.setRequestProperty("Accept", "text/html")
+        if (conn.responseCode in 200..299) {
+            parseReleaseTagFromUrl(conn.url.toString()).also {
+                Log.d("UpdateCheck", "Latest GitHub release: $it (${conn.url})")
+            }
         } else {
+            Log.w("UpdateCheck", "GitHub releases page returned HTTP ${conn.responseCode}")
             null
         }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        Log.w("UpdateCheck", "Failed to fetch GitHub releases page", e)
         null
     } finally {
         conn.disconnect()
     }
 }
+
+/** Extract the tag from a GitHub /releases/tag/<tag> URL (query/fragment tolerated). */
+internal fun parseReleaseTagFromUrl(url: String): String? =
+    Regex("""/releases/tag/([^/?#]+)""")
+        .find(url)
+        ?.groupValues
+        ?.get(1)
+        ?.trim()
+        ?.ifEmpty { null }
 
 /** Убирает ведущую "v" у тэга релиза. */
 private fun cleanVersion(tag: String): String = tag.removePrefix("v").trim()
