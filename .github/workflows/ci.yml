@@ -19,10 +19,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: 17
           distribution: temurin
@@ -46,7 +46,7 @@ jobs:
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1
 
       - name: Cache Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches
@@ -62,7 +62,7 @@ jobs:
         run: ./gradlew test
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -79,14 +79,14 @@ jobs:
         run: ./gradlew jacocoTestReport
 
       - name: Upload coverage report (HTML)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: app/build/reports/jacoco/jacocoTestReport/html/
           retention-days: 14
 
       - name: Upload coverage report (XML)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report-xml
           path: app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
@@ -135,7 +135,7 @@ jobs:
           fi
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NotifWebhook-${{ steps.version.outputs.name }}-debug
           path: app/build/outputs/apk/debug/NotifWebhook-${{ steps.version.outputs.name }}-debug.apk
@@ -143,7 +143,7 @@ jobs:
 
       - name: Upload signed release APK
         if: steps.keystore.outputs.decoded == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NotifWebhook-${{ steps.version.outputs.name }}
           path: app/build/outputs/apk/release/NotifWebhook-${{ steps.version.outputs.name }}.apk
@@ -151,7 +151,7 @@ jobs:
 
       - name: Upload unsigned release APK (fallback)
         if: steps.keystore.outputs.decoded != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NotifWebhook-${{ steps.version.outputs.name }}-unsigned
           path: app/build/outputs/apk/release/NotifWebhook-${{ steps.version.outputs.name }}-unsigned.apk
@@ -167,13 +167,13 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
 
       - name: Download signed APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: NotifWebhook-${{ needs.build.outputs.version }}
           path: /tmp/release-apk
