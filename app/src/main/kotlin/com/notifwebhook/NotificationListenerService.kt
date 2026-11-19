@@ -27,6 +27,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+private val Notification.isGroupSummary: Boolean
+    get() = (flags and Notification.FLAG_GROUP_SUMMARY) != 0
+
 /**
  * NotificationListenerService — ядро приложения.
  *
@@ -179,7 +182,10 @@ class NotificationListenerService : NotificationListenerService() {
         Log.d(tag, "→ Webhook: $packageName | $title | ${text.take(80)}")
 
         val queued = webhookQueue.trySend(
-            WebhookWork(webhookUrl, payload, packageName, appName, title, text, prefs, sbn.key)
+            WebhookWork(
+                webhookUrl, payload, packageName, appName, title, text, prefs,
+                sbn.key, sbn.groupKey, notification.isGroupSummary
+            )
         )
         if (queued.isFailure) {
             Log.w(tag, "Webhook queue is full; notification dropped for $packageName")
@@ -347,7 +353,7 @@ class NotificationListenerService : NotificationListenerService() {
         Log.d(tag, "Classification pending: $classificationId (key=${work.notificationKey})")
         serviceScope.launch {
             classificationSlots.withPermit {
-                val status = pollAndMaybeDismiss(work.webhookUrl, classificationId, work.notificationKey)
+                val status = pollAndMaybeDismiss(work.webhookUrl, classificationId, work)
                 recordHistory(work, result, status)
             }
         }
@@ -369,12 +375,41 @@ class NotificationListenerService : NotificationListenerService() {
     }
 
     /**
+     * Swipe the classified notification. When it is a child of an Android
+     * notification group, also remove the group summary if no other children
+     * remain. Otherwise the summary ("Wildberries") stays in the shade after
+     * its only child was swiped, which looks like a failed auto-dismiss.
+     */
+    private suspend fun dismissNotificationWithGroup(work: WebhookWork) {
+        cancelNotification(work.notificationKey)
+        if (work.groupKey == null || work.isGroupSummary) return
+
+        // Let NotificationManager process the child removal before inspecting
+        // the active set; the target key is excluded from the sibling count.
+        // A couple of retries cover slow SystemUI/launcher updates.
+        repeat(3) { attempt ->
+            delay(if (attempt == 0) 300 else 350)
+            val summaryKey = groupSummaryToCancel(
+                activeNotifications,
+                work.notificationKey,
+                work.groupKey,
+                work.isGroupSummary
+            )
+            if (summaryKey != null) {
+                Log.i(tag, "Cancelling group summary $summaryKey after child dismiss")
+                cancelNotification(summaryKey)
+                return
+            }
+        }
+    }
+
+    /**
      * Poll the classification status until it resolves or the client gives up.
      * On "dismiss" the notification is swiped via cancelNotification(key).
      * Fail-open: any error/timeout leaves the notification visible.
      * Returns the terminal status: "dismiss", "keep", "pending" (gave up) or "error".
      */
-    private suspend fun pollAndMaybeDismiss(webhookUrl: String, classificationId: String, notificationKey: String): String {
+    private suspend fun pollAndMaybeDismiss(webhookUrl: String, classificationId: String, work: WebhookWork): String {
         var attempt = 0
         var hadError = false
         while (attempt < CLASSIFICATION_MAX_POLLS) {
@@ -390,8 +425,8 @@ class NotificationListenerService : NotificationListenerService() {
             }
             when (status) {
                 "dismiss" -> {
-                    Log.i(tag, "Agent verdict: dismiss → swiping $notificationKey")
-                    cancelNotification(notificationKey)
+                    Log.i(tag, "Agent verdict: dismiss → swiping ${work.notificationKey}")
+                    dismissNotificationWithGroup(work)
                     return "dismiss"
                 }
                 "keep" -> {
@@ -554,8 +589,34 @@ class NotificationListenerService : NotificationListenerService() {
             val title: String,
             val text: String,
             val prefs: AppPrefs,
-            val notificationKey: String
+            val notificationKey: String,
+            val groupKey: String?,
+            val isGroupSummary: Boolean
         )
+
+        /**
+         * Return the group-summary key to cancel after [targetKey] was removed,
+         * or null when the group has other children / no summary.
+         */
+        internal fun groupSummaryToCancel(
+            active: Array<StatusBarNotification>?,
+            targetKey: String,
+            groupKey: String?,
+            targetIsGroupSummary: Boolean
+        ): String? {
+            if (groupKey == null || targetIsGroupSummary) return null
+            val notifications = active ?: return null
+            val summary = notifications.firstOrNull {
+                it.groupKey == groupKey && it.notification.isGroupSummary
+            } ?: return null
+            if (summary.key == targetKey) return null
+            val remainingChildren = notifications.count {
+                it.groupKey == groupKey &&
+                    it.key != targetKey &&
+                    !it.notification.isGroupSummary
+            }
+            return summary.key.takeIf { remainingChildren == 0 }
+        }
 
         /**
          * Проверяет, должно ли уведомление быть пропущено согласно правилам исключений.
