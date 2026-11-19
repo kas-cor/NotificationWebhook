@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.os.Parcelable
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -17,6 +16,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -45,6 +46,11 @@ class NotificationListenerService : NotificationListenerService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val webhookQueue = Channel<WebhookWork>(capacity = 100)
 
+    // Polling for a promo verdict runs alongside the send loop, not inside it:
+    // one verdict can take up to 30s and must not delay subsequent notifications.
+    // The semaphore keeps a burst of notifications from spawning too many pollers.
+    private val classificationSlots = Semaphore(4)
+
     // Дедупликация: храним последние N пар (packageName+title+text) чтобы не слать дубли
     private val recentNotifications: LinkedHashMap<String, Long> = object : LinkedHashMap<String, Long>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
@@ -61,7 +67,7 @@ class NotificationListenerService : NotificationListenerService() {
         Log.i(tag, "Service onCreate")
         serviceScope.launch {
             for (work in webhookQueue) {
-                sendWithRetry(work)
+                processWork(work)
             }
         }
         // Запрашиваем переподключение при создании — это помогает системе
@@ -193,17 +199,12 @@ class NotificationListenerService : NotificationListenerService() {
      */
     fun resolveText(notification: Notification, extras: Bundle): String {
         // 1. MessagingStyle (чат/мессенджеры: Telegram, WhatsApp и т.д.)
-        // В extras EXTRA_MESSAGES хранится как ArrayList<Bundle>
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val rawMessages = extras.getParcelableArrayList<Parcelable>(Notification.EXTRA_MESSAGES)
-            if (!rawMessages.isNullOrEmpty()) {
-                val texts = rawMessages.mapNotNull { p ->
-                    (p as? Bundle)?.getCharSequence("android.text")?.toString()
-                }
-                if (texts.isNotEmpty()) {
-                    return texts.joinToString("\n")
-                }
-            }
+        // Android 14: некоторые приложения кладут EXTRA_MESSAGES как Parcelable[],
+        // а не ArrayList<Bundle>. Типизированные геттеры в этом случае кидают
+        // ClassCastException и возвращают null, поэтому читаем значение как есть.
+        val messageTexts = extractMessageTexts(extras.get(Notification.EXTRA_MESSAGES))
+        if (messageTexts.isNotEmpty()) {
+            return messageTexts.joinToString("\n")
         }
 
         // 2. Big text (развёрнутые уведомления)
@@ -301,7 +302,7 @@ class NotificationListenerService : NotificationListenerService() {
      * Выполняется в IO-диспетчере корутины — блокирующий вызов безопасен.
      * Возвращает Pair<успех, HTTP-код>.
      */
-    private suspend fun sendWithRetry(work: WebhookWork) {
+    private suspend fun processWork(work: WebhookWork) {
         var result = WebhookSend(success = false, httpCode = 0, responseBody = null)
         for (attempt in 0 until MAX_RETRIES) {
             result = sendToWebhook(work.webhookUrl, work.payload)
@@ -310,25 +311,45 @@ class NotificationListenerService : NotificationListenerService() {
         }
         Log.d(tag, "Webhook result: ${result.success} (${result.httpCode}) for ${work.packageName}")
 
-        // Classification pipeline: after a successful POST, poll the server for
-        // the agent verdict. If it says "dismiss", swipe the notification away.
-        // Skipped entirely when the user disabled the feature.
-        var classifyStatus: String? = null
-        if (result.success) {
-            if (work.prefs.classificationEnabled) {
-                val classificationId = parseClassificationId(result.responseBody)
-                if (!classificationId.isNullOrBlank()) {
-                    Log.d(tag, "Classification pending: $classificationId (key=${work.notificationKey})")
-                    classifyStatus = pollAndMaybeDismiss(work.webhookUrl, classificationId, work.notificationKey)
-                } else {
-                    Log.d(tag, "Server did not return classification_id; skip polling")
-                }
-            } else {
-                classifyStatus = "disabled"
-                Log.d(tag, "Classification disabled by user; skip polling")
-            }
+        if (!result.success) {
+            recordHistory(work, result, classifyStatus = null)
+            return
         }
 
+        // Classification pipeline: after a successful POST, poll the server for
+        // the agent verdict. If it says "dismiss", swipe the notification away.
+        // Polling is dispatched to a separate coroutine so the send queue keeps
+        // moving while the agent decides (up to CLASSIFICATION_MAX_POLLS * delay).
+        val classificationId = if (work.prefs.classificationEnabled) {
+            parseClassificationId(result.responseBody)
+        } else {
+            null
+        }
+
+        if (classificationId.isNullOrBlank()) {
+            if (work.prefs.classificationEnabled) {
+                Log.d(tag, "Server did not return classification_id; skip polling")
+            } else {
+                Log.d(tag, "Classification disabled by user; skip polling")
+            }
+            recordHistory(
+                work,
+                result,
+                classifyStatus = if (work.prefs.classificationEnabled) null else "disabled"
+            )
+            return
+        }
+
+        Log.d(tag, "Classification pending: $classificationId (key=${work.notificationKey})")
+        serviceScope.launch {
+            classificationSlots.withPermit {
+                val status = pollAndMaybeDismiss(work.webhookUrl, classificationId, work.notificationKey)
+                recordHistory(work, result, status)
+            }
+        }
+    }
+
+    private fun recordHistory(work: WebhookWork, result: WebhookSend, classifyStatus: String?) {
         work.prefs.addHistoryEntry(
             WebhookEntry(
                 timestamp = System.currentTimeMillis(),
@@ -381,8 +402,7 @@ class NotificationListenerService : NotificationListenerService() {
     /** GET /classification/{id}, returns "keep"/"dismiss"/"pending" or null on error. */
     private fun fetchClassificationStatus(webhookUrl: String, classificationId: String): String? {
         return try {
-            val base = webhookUrl.removeSuffix("/webhook").substringBeforeLast('/')
-            val url = "$base/classification/$classificationId"
+            val url = classificationUrl(webhookUrl, classificationId)
             val conn = URL(url).openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("Accept", "application/json")
@@ -401,7 +421,10 @@ class NotificationListenerService : NotificationListenerService() {
                 return null
             }
             val obj = JSONObject(body)
-            obj.optString("action", null) ?: obj.optString("status")
+            // Android's org.json returns the string "null" for JSON null, so an
+            // absent verdict must be treated as absent before reading the status.
+            val action = obj.optString("action", "")
+            if (action.isNotBlank() && action != "null") action else obj.optString("status", "")
         } catch (e: Exception) {
             Log.e(tag, "fetchClassificationStatus error: ${e.message}")
             null
@@ -470,6 +493,33 @@ class NotificationListenerService : NotificationListenerService() {
             val httpCode: Int,
             val responseBody: String?
         )
+
+        /**
+         * Build the GET /classification/{id} URL.
+         * Keeps any reverse-proxy prefix: https://host/notif-webhook/webhook
+         * → https://host/notif-webhook/classification/{id}.
+         */
+        internal fun classificationUrl(webhookUrl: String, classificationId: String): String {
+            val base = webhookUrl.trim()
+                .substringBefore('?')
+                .substringBefore('#')
+                .trimEnd('/')
+                .removeSuffix("/webhook")
+            return "$base/classification/$classificationId"
+        }
+
+        /**
+         * Extract MessagingStyle texts from EXTRA_MESSAGES.
+         * Android 14 apps may supply either ArrayList<Bundle> or Parcelable[].
+         */
+        internal fun extractMessageTexts(rawMessages: Any?): List<String> {
+            val bundles: List<Bundle> = when (rawMessages) {
+                is List<*> -> rawMessages.filterIsInstance<Bundle>()
+                is Array<*> -> rawMessages.filterIsInstance<Bundle>()
+                else -> emptyList()
+            }
+            return bundles.mapNotNull { it.getCharSequence("android.text")?.toString() }
+        }
 
         /** Parse classification_id out of the POST response body, or null. */
         internal fun parseClassificationId(responseBody: String?): String? {

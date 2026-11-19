@@ -105,15 +105,16 @@ MainActivity  ← Jetpack Compose (setContent)
 
 ## Tests
 
-**37 tests** for `NotificationListenerServiceTest`:
+**44 tests** for `NotificationListenerServiceTest`:
 
 | Group | Tests | What's tested |
 |---|---|---|
 | `resolveTitle` | 8 | Title priority: BigTitle → Title → tickerText → "", empty/whitespace values |
-| `resolveText` | 11 | Text priority: BigText → TextLines → Text → SummaryText → tickerText → "" |
+| `resolveText` | 14 | Text priority: MessagingStyle messages (`ArrayList` and `Parcelable[]`) → BigText → TextLines → Text → SummaryText → tickerText → "" |
 | `notification` (isOngoing) | 3 | `FLAG_ONGOING_EVENT`, without flag, flag combinations |
 | `shouldSkipByRules` | 10 | Exclusion rules: substring match, case-insensitivity, unknown field |
 | `parseClassificationId` | 4 | NotificationListenerService classification parsing |
+| `classificationUrl` | 4 | Preserves reverse-proxy path prefix, strips `/webhook`, handles query/trailing slash |
 | `isDismissAction` | 1 | Action detection |
 
 **17 tests** for `AppPrefsTest` (`WebhookEntry`/`ExclusionRule` JSON roundtrip, history limit 50, exclusion rules CRUD; `classifyStatus` roundtrip, null handling for absent field, unique id generation).
@@ -294,7 +295,7 @@ If classification is enabled and the server returns a `dismiss` verdict, the cor
 - **BuildConfig:** enabled for `VERSION_NAME`, used in Settings about card
 - **NLS status check:** read via `Settings.Secure.enabled_notification_listeners` (reliable on API 34); live updates via broadcast receiver in HomeTab
 - **Logging:** Tag `NLS_Webhook` for ListenerService, `KeepAliveService` for foreground service, `BootReceiver` for receiver
-- **Testing:** JUnit + Mockito (inline mock maker), 54 unit tests + 5 Compose UI tests (Robolectric, debug variant only)
+- **Testing:** JUnit + Mockito (inline mock maker), 61 unit tests + 5 Compose UI tests (Robolectric, debug variant only)
 - **CI:** lint → test → JaCoCo → assembleDebug → assembleRelease → artifacts
 - **APK signing:** via secrets `KEYSTORE_BASE64` + `KEYSTORE_PASSWORD`
 

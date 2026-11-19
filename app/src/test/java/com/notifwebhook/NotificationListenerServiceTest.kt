@@ -139,6 +139,38 @@ class NotificationListenerServiceTest {
     }
 
     @Test
+    fun `resolveText reads MessagingStyle messages from ArrayList`() {
+        val message = mock(Bundle::class.java)
+        `when`(message.getCharSequence("android.text")).thenReturn("Hello from chat")
+        `when`(extras.get(Notification.EXTRA_MESSAGES)).thenReturn(arrayListOf(message))
+        `when`(extras.getCharSequence(Notification.EXTRA_BIG_TEXT)).thenReturn("Big text")
+
+        val result = service.resolveText(mockNotification, extras)
+        assertEquals("Hello from chat", result)
+    }
+
+    @Test
+    fun `resolveText reads MessagingStyle messages from Parcelable array`() {
+        val first = mock(Bundle::class.java)
+        `when`(first.getCharSequence("android.text")).thenReturn("First")
+        val second = mock(Bundle::class.java)
+        `when`(second.getCharSequence("android.text")).thenReturn("Second")
+        `when`(extras.get(Notification.EXTRA_MESSAGES)).thenReturn(arrayOf(first, second))
+
+        val result = service.resolveText(mockNotification, extras)
+        assertEquals("First\nSecond", result)
+    }
+
+    @Test
+    fun `resolveText ignores malformed EXTRA_MESSAGES`() {
+        `when`(extras.get(Notification.EXTRA_MESSAGES)).thenReturn("not-a-list")
+        `when`(extras.getCharSequence(Notification.EXTRA_TEXT)).thenReturn("Main text")
+
+        val result = service.resolveText(mockNotification, extras)
+        assertEquals("Main text", result)
+    }
+
+    @Test
     fun `resolveText joins EXTRA_TEXT_LINES when present`() {
         `when`(extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES))
             .thenReturn(arrayOf("Line 1", "Line 2", "Line 3"))
@@ -401,6 +433,51 @@ class NotificationListenerServiceTest {
         assertFalse(NotificationListenerService.isDismissAction("pending"))
         assertFalse(NotificationListenerService.isDismissAction(null))
         assertFalse(NotificationListenerService.isDismissAction(""))
+    }
+
+    // -------------------------------------------------------------------------
+    // Classification URL
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `classificationUrl keeps reverse proxy prefix`() {
+        assertEquals(
+            "https://hermes.tailf6ef4d.ts.net/notif-webhook/classification/abc-123",
+            NotificationListenerService.classificationUrl(
+                "https://hermes.tailf6ef4d.ts.net/notif-webhook/webhook",
+                "abc-123"
+            )
+        )
+    }
+
+    @Test
+    fun `classificationUrl strips webhook suffix at host root`() {
+        assertEquals(
+            "https://example.com/classification/abc-123",
+            NotificationListenerService.classificationUrl(
+                "https://example.com/webhook",
+                "abc-123"
+            )
+        )
+    }
+
+    @Test
+    fun `classificationUrl handles trailing slash and query`() {
+        assertEquals(
+            "http://127.0.0.1:8790/classification/abc-123",
+            NotificationListenerService.classificationUrl(
+                "http://127.0.0.1:8790/webhook/?x=1",
+                "abc-123"
+            )
+        )
+    }
+
+    @Test
+    fun `classificationUrl keeps host when url has no path`() {
+        assertEquals(
+            "https://example.com/classification/abc-123",
+            NotificationListenerService.classificationUrl("https://example.com/", "abc-123")
+        )
     }
 
     // -------------------------------------------------------------------------
